@@ -7,6 +7,7 @@
   "scripts": {
     "build": "tsc",
     "test": "jest",
+    "certs": "openssl req -x509 -newkey rsa:4096 -sha256 -days 365 -nodes -keyout certs/privkey.pem -out certs/fullchain.pem -subj '/CN=example.com' -addext 'subjectAltName=DNS:example.com,DNS:*.example.com,IP:127.0.0.1'",
     "tdd": "jest --watchAll"
   },
   "prettier": "@cloud-cli/prettier-config",
