@@ -19,8 +19,9 @@
     "access": "public"
   },
   "devDependencies": {
-    "@cloud-cli/prettier-config": "^1.0.0",
     "@cloud-cli/jest-config": "^1.0.0",
-    "@cloud-cli/typescript-config": "^1.0.0"
+    "@cloud-cli/prettier-config": "^1.0.0",
+    "@cloud-cli/typescript-config": "^1.0.0",
+    "@types/node": "^20.6.1"
   }
 }

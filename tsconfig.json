@@ -1,7 +1,7 @@
 {
   "extends": "@cloud-cli/typescript-config",
   "compilerOptions": {
-    "outDir": "./dist"
+    "outDir": "./dist",
   },
   "include": ["src/**/*.ts"]
 }

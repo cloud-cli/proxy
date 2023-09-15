@@ -10,17 +10,33 @@ The server automatically loads SSL certificates from a folder, where each subfol
 Sub-domains are automatically resolved to their parent domain when requested.
 `sub.example.com` will use the certificate from `example.com` if available.
 
-For example, loads certs for `*.foo.com` and `*.example.com`:
+For example, to load certs for `*.foo.com` and `*.example.com`:
 
 ```js
-certificatesFolder = "/var/ssl";
+const settings = new ProxySettings({
+  certificatesFolder = "/var/ssl",
+  certificateFile = "cert.crt",
+  keyFile = "cert.key",
+});
 ```
 
-And in that folder, have "foo.com" and "example.com" as subfolders.
+```sh
+$ ls /var/ssl/*
+
+/var/ssl/foo.com:
+cert.pem
+cert.key
+
+/var/ssl/example.com:
+cert.pem
+cert.key
+```
 
 **certificateFile/keyFile:**
 
-Names of the files from where certificates are loaded. Defaults are:
+Names of the files from where certificates are loaded.
+
+Defaults:
 
 ```js
 certificateFile = "fullchain.pem";
