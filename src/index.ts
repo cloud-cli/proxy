@@ -43,6 +43,8 @@ export class ProxySettings {
   }
 }
 
+const debugEnabled = !!process.env.DEBUG;
+
 export class ProxyServer extends EventEmitter {
   protected certs: Record<string, SecureContext> = {};
   protected proxies: Record<string, MinimalProxyEntry> = {};
@@ -54,8 +56,6 @@ export class ProxyServer extends EventEmitter {
     super();
     this.settings = settings;
     this.reset();
-    const oneDay = 1000 * 60 * 60 * 24;
-    this.autoReload = setInterval(() => this.reload(), oneDay);
   }
 
   start() {
@@ -69,6 +69,10 @@ export class ProxyServer extends EventEmitter {
         this.settings.httpsPort,
       ),
     ];
+
+    const oneDay = 1000 * 60 * 60 * 24;
+    this.autoReload = setInterval(() => this.reload(), oneDay);
+
     return this;
   }
 
@@ -76,6 +80,8 @@ export class ProxyServer extends EventEmitter {
     this.servers.forEach((server: any) => server.close());
     this.proxies = {};
     this.certs = {};
+    clearInterval(this.autoReload);
+
     return this;
   }
 
@@ -119,6 +125,8 @@ export class ProxyServer extends EventEmitter {
   protected serveRequest(req: IncomingMessage, res: ServerResponse, insecure = false) {
     const origin = this.getRequestOrigin(req);
     const proxyEntry = this.proxies[origin?.hostname];
+
+    debugEnabled && console.log(req.method, req.url, origin.hostname, proxyEntry.target);
 
     if (!origin.hostname || !proxyEntry) {
       res.writeHead(404, 'Not found');

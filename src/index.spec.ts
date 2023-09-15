@@ -9,7 +9,6 @@ const getPort = () => 1000 + Math.floor(Math.random() * 55000);
 beforeAll(() => {
   server && server.close();
   server = createServer((req, res) => {
-    console.log(req.url);
     res.write(req.method + ' ' + req.url);
 
     Object.entries(req.headers).forEach(([key, value]) => res.write(`${key}: ${value}`));
@@ -58,15 +57,16 @@ describe('ProxyServer', () => {
   }
 
   it('should proxy an HTTP request', async () => {
-    const { server, settings, httpRequest } = setup();
+    const { server, httpRequest } = setup();
     server.start();
-    server.add({ domain: 'foo.local', target: 'http://localhost:' + settings.httpPort });
+    server.add({ domain: 'localhost', target: 'http://localhost:' + port });
 
     const response = await httpRequest('/test');
     expect(response).not.toContain('FAIL');
     expect(response).toContain('GET /test');
-    expect(response.includes()).toBe(true);
-    expect(response.includes('x-forwarded-for: localhost')).toBe(true);
-    expect(response.includes('x-forwarded-proto: http')).toBe(true);
+    expect(response).toContain('x-forwarded-for: localhost');
+    expect(response).toContain('x-forwarded-proto: http');
+
+    server.reset();
   });
 });
