@@ -15,7 +15,7 @@ For example, to load certs for `*.foo.com` and `*.example.com`:
 ```js
 const settings = new ProxySettings({
   certificatesFolder = "/var/ssl",
-  certificateFile = "cert.crt",
+  certificateFile = "cert.pem",
   keyFile = "cert.key",
 });
 ```
@@ -47,7 +47,32 @@ keyFile = "privkey.pem";
 
 Allow you to change the http ports. Defaults are `80` and `443`;
 
-## API
+## Usage
+
+```ts
+import { ProxyServer, ProxySettings, ProxyEntry } from '@cloud-cli/proxy';
+
+// set up the proxy instance
+const settings = new ProxySettings({ ... });
+
+// create a server
+const server = new ProxyServer(settings);
+
+// start HTTP/HTTPS servers
+server.start();
+
+// add a proxy entry
+server.add(new ProxyEntry({...}));
+
+// use it to reset all proxy entries and close running HTTP ports
+server.reset();
+
+// reload certificates for all proxy entries.
+// each server reloads all certificates once per day
+server.reload();
+```
+
+## Example
 
 ```ts
 import { ProxyServer, ProxySettings, ProxyEntry } from '@cloud-cli/proxy';
@@ -57,19 +82,21 @@ const settings = new ProxySettings({
 });
 
 const server = new ProxyServer(settings);
-
 server.start();
 
+// http://example.com => (redirect 302) https://www.example.com/
 server.add(new ProxyEntry({
   domain: 'example.com',
   redirectToDomain: 'www.example.com',
 }));
 
+// http://old.example.com => (redirect 302) https://www.example.com/
 server.add(new ProxyEntry({
   domain: 'old.example.com',
   redirectToUrl: 'https://www.example.com/',
 }));
 
+// http://www.example.com => (forward to) http://localhost:1234/
 server.add(new ProxyEntry({
   domain: 'www.example.com',
   target: 'http://localhost:1234/',

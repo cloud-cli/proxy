@@ -123,12 +123,22 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected serveRequest(req: IncomingMessage, res: ServerResponse, insecure = false) {
-    const origin = this.getRequestOrigin(req);
+    const host = req.headers["x-forwarded-for"] || req.headers.host || "";
+    const origin = (host && new URL("http://" + host)) || null;
     const proxyEntry = this.proxies[origin?.hostname];
 
-    debugEnabled && console.log(req.method, req.url, origin.hostname, proxyEntry.target);
+    if (debugEnabled) {
+      console.log(
+        "[%s] %s %s [from %s] => %s",
+        new Date().toISOString().slice(0, 10),
+        req.method,
+        req.url,
+        host,
+        proxyEntry?.target
+      );
+    }
 
-    if (!origin.hostname || !proxyEntry) {
+    if (!origin || !proxyEntry) {
       res.writeHead(404, 'Not found');
       res.end();
       return;
@@ -234,11 +244,6 @@ export class ProxyServer extends EventEmitter {
     for (const header of headers) {
       to.setHeader(header[0], header[1]);
     }
-  }
-
-  protected getRequestOrigin(req: IncomingMessage): URL {
-    const host = req.headers['x-forwarded-for'] || req.headers.host || '';
-    return (host && new URL('http://' + host)) || null;
   }
 
   protected getHostnameFromUrl(string: string) {
