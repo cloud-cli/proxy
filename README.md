@@ -39,8 +39,8 @@ Names of the files from where certificates are loaded.
 Defaults:
 
 ```js
-certificateFile = "fullchain.pem";
-keyFile = "privkey.pem";
+certificateFile = 'fullchain.pem';
+keyFile = 'privkey.pem';
 ```
 
 **httpPort/httpsPort:**
@@ -58,6 +58,9 @@ const settings = new ProxySettings({ ... });
 // create a server
 const server = new ProxyServer(settings);
 
+// create internal HTTP/HTTPS servers
+server.createServers();
+
 // start HTTP/HTTPS servers
 server.start();
 
@@ -70,6 +73,9 @@ server.reset();
 // reload certificates for all proxy entries.
 // each server reloads all certificates once per day
 server.reload();
+
+// OPTIONAL: handle a request coming from another http(s) server
+server.handleRequest(request, response, /* isSSL */ false);
 ```
 
 ## Example
@@ -85,28 +91,33 @@ const server = new ProxyServer(settings);
 server.start();
 
 // http://example.com => (redirect 302) https://www.example.com/
-server.add(new ProxyEntry({
-  domain: 'example.com',
-  redirectToDomain: 'www.example.com',
-}));
+server.add(
+  new ProxyEntry({
+    domain: 'example.com',
+    redirectToDomain: 'www.example.com',
+  }),
+);
 
 // http://old.example.com => (redirect 302) https://www.example.com/
-server.add(new ProxyEntry({
-  domain: 'old.example.com',
-  redirectToUrl: 'https://www.example.com/',
-}));
+server.add(
+  new ProxyEntry({
+    domain: 'old.example.com',
+    redirectToUrl: 'https://www.example.com/',
+  }),
+);
 
 // http://www.example.com => (forward to) http://localhost:1234/
-server.add(new ProxyEntry({
-  domain: 'www.example.com',
-  target: 'http://localhost:1234/',
-}));
-
+server.add(
+  new ProxyEntry({
+    domain: 'www.example.com',
+    target: 'http://localhost:1234/',
+  }),
+);
 ```
 
 ## Environment variables
 
-| var | description |
-|-|-|
-| DEBUG | Enable debug logging |
+| var                | description                                        |
+| ------------------ | -------------------------------------------------- |
+| DEBUG              | Enable debug logging                               |
 | PROXY_CERTS_FOLDER | Path to a folder where SSL certificates are stored |
