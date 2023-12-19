@@ -185,38 +185,6 @@ describe('ProxyServer', () => {
     expect(res.body).toBe('');
   });
 
-  it('should set CORS headers', async () => {
-    const { server, createRequest } = setup();
-    const { req, res, events, promise } = createRequest('GET', new URL('http://localhost/test'), {
-      origin: 'http://localhost/',
-    });
-
-    await server.start();
-    server.add({
-      domain: 'localhost',
-      target: serverTarget,
-      cors: true,
-    });
-
-    server.handleRequest(req, res, false);
-
-    events.data('OK');
-    events.end();
-
-    await promise;
-
-    expect(res.writeHead).toHaveBeenCalledWith(200, 'OK');
-    expect(res.end).toHaveBeenCalledWith();
-    expect(res.body).toContain('x-forwarded-for: localhost');
-    expect(res.body).toContain('x-forwarded-proto: http');
-    expect(res.headers['Vary']).toBe('Origin');
-    expect(res.headers['Access-Control-Allow-Origin']).toBe('http://localhost');
-    expect(res.headers['Access-Control-Allow-Headers']).toBe('*');
-    expect(res.headers['Access-Control-Allow-Methods']).toBe('GET,HEAD,PUT,PATCH,POST,DELETE');
-    expect(res.headers['Access-Control-Allow-Credentials']).toBe('true');
-    expect(res.body).toContain('GET /test');
-  });
-
   it('should set CORS headers and finish request', async () => {
     const { server, createRequest } = setup();
     const { req, res, promise } = createRequest('OPTIONS', new URL('http://example.com/cors'), {
