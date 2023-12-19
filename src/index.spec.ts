@@ -34,7 +34,7 @@ describe('ProxySettings', () => {
 describe('ProxyServer', () => {
   function setup() {
     const settings = new ProxySettings({
-      certificatesFolder: './certs',
+      certificatesFolder: process.cwd() + '/certs',
       certificateFile: 'cert.crt',
       keyFile: 'key.crt',
       httpPort: 3000,

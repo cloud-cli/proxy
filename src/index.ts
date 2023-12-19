@@ -15,6 +15,7 @@ import { createSecureContext, SecureContext } from 'node:tls';
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
+import { existsSync } from 'node:fs';
 
 export class ProxyEntry {
   readonly domain: string;
@@ -102,22 +103,29 @@ export class ProxyServer extends EventEmitter {
   protected async loadCertificate(folder: string) {
     const { certificatesFolder, certificateFile, keyFile } = this.settings;
 
-    if (debugEnabled) {
-      console.log(`Loading certificates from ${certificatesFolder}/${folder}`);
-    }
-
     createSecureContext({
       cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
       key: await readFile(join(certificatesFolder, folder, keyFile), 'utf8'),
     });
+
+    if (debugEnabled) {
+      console.log(`.. ${folder}`);
+    }
   }
 
   protected async loadCertificates() {
     const certs = (this.certs = {});
+    const folder = this.settings.certificatesFolder;
 
-    const localCerts = await readdir(this.settings.certificatesFolder, {
-      withFileTypes: true,
-    });
+    if (debugEnabled) {
+      console.log(`Loading certificates from ${folder}`);
+    }
+
+    const localCerts = !existsSync(folder)
+      ? []
+      : await readdir(folder, {
+          withFileTypes: true,
+        });
 
     const folders = localCerts.filter((entry) => entry.isDirectory()).map((dir) => dir.name);
 
