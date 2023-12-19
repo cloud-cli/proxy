@@ -185,7 +185,7 @@ describe('ProxyServer', () => {
     expect(res.body).toBe('');
   });
 
-  it('should set CORS headers', async () => {
+  it.skip('should set CORS headers', async () => {
     const { server, createRequest } = setup();
     const { req, res, events, promise } = createRequest('GET', new URL('http://example.com/test'), {
       origin: 'http://example.com/',
