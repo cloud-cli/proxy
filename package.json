@@ -9,6 +9,9 @@
     "test": "jest",
     "tdd": "jest --watchAll"
   },
+  "bin": {
+    "http-proxy": "./cli.mjs"
+  },
   "prettier": "@cloud-cli/prettier-config",
   "repository": {
     "type": "git",

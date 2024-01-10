@@ -121,3 +121,38 @@ server.add(
 | ------------------ | -------------------------------------------------- |
 | DEBUG              | Enable debug logging                               |
 | PROXY_CERTS_FOLDER | Path to a folder where SSL certificates are stored |
+
+## http-proxy
+
+This module also provides an executable to run as a standalone server.
+
+Options can be either provided as a JSON file (`proxy.config.json`) or an ES module (`proxy.config.mjs`).
+The format is defined in [src/cli.mts](src/cli.mts). It is the same as `ProxySettings` + an array of `ProxyEntry`;
+
+Example:
+
+```json
+{
+  "certificatesFolder": "/path/to/ssl",
+  "proxies": [
+    {
+      "domain": "example.com",
+      "redirectToDomain": "www.example.com",
+    },
+    {
+      "domain": "old.example.com",
+      "redirectToUrl": "https://www.example.com",
+    },
+    {
+      "domain": "www.example.com",
+      "target": "http://localhost:1234/",
+    }
+  ]
+}
+```
+
+To run the proxy, just call `http-proxy` in the same folder as the configuration file:
+
+```
+$ http-proxy
+```
