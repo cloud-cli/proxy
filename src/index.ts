@@ -79,6 +79,8 @@ export class ProxyServer extends EventEmitter {
       this.autoReload = setInterval(() => this.reload(), this.settings.autoReload);
     }
 
+    this.createServers();
+
     return this;
   }
 

@@ -33,12 +33,13 @@ describe('ProxySettings', () => {
 
 describe('ProxyServer', () => {
   function setup() {
+    const getPort = () => Math.floor(2000 + Math.random() * 5000);
     const settings = new ProxySettings({
       certificatesFolder: process.cwd() + '/certs',
       certificateFile: 'cert.crt',
       keyFile: 'key.crt',
-      httpPort: 3000,
-      httpsPort: 4000,
+      httpPort: getPort(),
+      httpsPort: getPort(),
       autoReload: 0,
     });
 
