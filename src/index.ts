@@ -105,14 +105,14 @@ export class ProxyServer extends EventEmitter {
   protected async loadCertificate(folder: string) {
     const { certificatesFolder, certificateFile, keyFile } = this.settings;
 
-    createSecureContext({
-      cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
-      key: await readFile(join(certificatesFolder, folder, keyFile), 'utf8'),
-    });
-
     if (debugEnabled) {
       console.log(`.. ${folder}`);
     }
+
+    return createSecureContext({
+      cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
+      key: await readFile(join(certificatesFolder, folder, keyFile), 'utf8'),
+    });
   }
 
   protected async loadCertificates() {
