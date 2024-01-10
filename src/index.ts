@@ -72,7 +72,6 @@ export class ProxyServer extends EventEmitter {
   }
 
   async start() {
-    this.reset();
     await this.reload();
 
     if (this.settings.autoReload) {
