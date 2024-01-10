@@ -91,6 +91,8 @@ describe('ProxyServer', () => {
     expect(res.writeHead).toHaveBeenCalledWith(404, 'Not found');
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
+
+    server.reset();
   });
 
   it('should proxy an HTTP request', async () => {
@@ -117,6 +119,8 @@ describe('ProxyServer', () => {
     expect(res.body).toContain('x-forwarded-for: example.com');
     expect(res.body).toContain('x-forwarded-proto: http');
     expect(res.body).toContain('GET /test');
+
+    server.reset();
   });
 
   it('should redirect to HTTPS', async () => {
@@ -137,6 +141,8 @@ describe('ProxyServer', () => {
     expect(res.writeHead).toHaveBeenCalledWith(301, 'HTTPS is better');
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
+
+    server.reset();
   });
 
   it('should redirect to another domain, keeping the same protocol and URL', async () => {
@@ -161,6 +167,8 @@ describe('ProxyServer', () => {
     expect(res.headers.Location).toBe('https://redirect.com/redirectDomain');
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
+
+    server.reset();
   });
 
   it('should redirect to another URL', async () => {
@@ -184,6 +192,8 @@ describe('ProxyServer', () => {
     expect(res.headers.Location).toBe('http://another.example.com/foo');
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
+
+    server.reset();
   });
 
   it('should set CORS headers and finish request', async () => {
@@ -205,5 +215,7 @@ describe('ProxyServer', () => {
     expect(res.writeHead).toHaveBeenCalledWith(204, { 'Content-Length': '0' });
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
+
+    server.reset();
   });
 });
