@@ -23,6 +23,7 @@ export class ProxyEntry {
   readonly redirectToHttps: boolean = false;
   readonly redirectToUrl: string = '';
   readonly redirectToDomain: string = '';
+  readonly path: string = '';
   readonly cors: boolean = false;
 
   constructor(p: Partial<ProxyEntry>) {
@@ -49,7 +50,7 @@ const debugEnabled = !!process.env.DEBUG;
 
 export class ProxyServer extends EventEmitter {
   protected certs: Record<string, SecureContext> = {};
-  protected proxies: Record<string, MinimalProxyEntry> = {};
+  protected proxies: Array<MinimalProxyEntry> = [];
   protected servers: Array<ReturnType<typeof createHttpServer>> = [];
   protected settings: ProxySettings;
   protected autoReload: any;
@@ -83,7 +84,7 @@ export class ProxyServer extends EventEmitter {
 
   reset() {
     this.servers.forEach((server: any) => server.close());
-    this.proxies = {};
+    this.proxies = [];
     this.certs = {};
     clearInterval(this.autoReload);
 
@@ -96,7 +97,7 @@ export class ProxyServer extends EventEmitter {
   }
 
   add(proxy: MinimalProxyEntry) {
-    this.proxies[proxy.domain] = proxy;
+    this.proxies.push(proxy);
     return this;
   }
 
@@ -137,7 +138,7 @@ export class ProxyServer extends EventEmitter {
   handleRequest(req: IncomingMessage, res: ServerResponse, isSsl?: boolean) {
     const host = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
     const origin = host ? new URL('http://' + host) : null;
-    const proxyEntry = this.proxies[origin?.hostname];
+    const proxyEntry = this.findProxyEntry(origin?.hostname, req.url);
 
     if (debugEnabled) {
       console.log(
@@ -189,6 +190,11 @@ export class ProxyServer extends EventEmitter {
 
     const target = proxyEntry.target;
     const url = new URL(req.url, target);
+
+    if (proxyEntry.path) {
+      url.pathname = url.pathname.replace(proxyEntry.path, '');
+    }
+
     const proxyRequest = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: req.method });
     this.setHeaders(req, proxyRequest);
     proxyRequest.setHeader('host', this.getHostnameFromUrl(String(target)));
@@ -213,6 +219,17 @@ export class ProxyServer extends EventEmitter {
       proxyRes.on('data', (chunk) => res.write(chunk));
       proxyRes.on('end', () => res.end());
     });
+  }
+
+  protected findProxyEntry(domain: string, incomingUrl: string) {
+    const urlPath = new URL(incomingUrl, 'http://localhost').pathname;
+    const byDomain = this.proxies.filter(p => p.domain === domain);
+
+    if (byDomain.length === 1) {
+      return byDomain[0];
+    }
+
+    return byDomain.find(p => p.path && urlPath.startsWith(p.path)) || null;
   }
 
   protected getSslOptions(): HttpsServerOptions {

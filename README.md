@@ -14,9 +14,9 @@ For example, to load certs for `*.foo.com` and `*.example.com`:
 
 ```js
 const settings = new ProxySettings({
-  certificatesFolder = "/var/ssl",
-  certificateFile = "cert.pem",
-  keyFile = "cert.key",
+  certificatesFolder: "/var/ssl",
+  certificateFile: "cert.pem",
+  keyFile: "cert.key",
 });
 ```
 
@@ -39,13 +39,23 @@ Names of the files from where certificates are loaded.
 Defaults:
 
 ```js
-certificateFile = 'fullchain.pem';
-keyFile = 'privkey.pem';
+const settings = new ProxySettings({
+  certificateFile = 'fullchain.pem';
+  keyFile = 'privkey.pem';
+});
 ```
 
 **httpPort/httpsPort:**
 
-Allow you to change the http ports. Defaults are `80` and `443`;
+Allow you to change the http ports. Defaults are `80` and `443`
+
+```js
+const settings = new ProxySettings({
+  httpPort: 3000,
+  httpsPort: 3443,
+});
+```
+
 
 ## Usage
 
@@ -129,11 +139,22 @@ This module also provides an executable to run as a standalone server.
 Options can be either provided as a JSON file (`proxy.config.json`) or an ES module (`proxy.config.mjs`).
 The format is defined in [src/cli.mts](src/cli.mts). It is the same as `ProxySettings` + an array of `ProxyEntry`;
 
-Example:
+To run the proxy, just call `http-proxy` in the same folder as the configuration file:
+
+```
+$ http-proxy
+```
+
+## Full configuration
 
 ```json
 {
-  "certificatesFolder": "/path/to/ssl",
+  "httpPort": 80,
+  "httpsPort": 443,
+  "autoReload": 3600,
+  "certificatesFolder": "/etc/ssl",
+  "certificateFile": "fullchain.pem",
+  "keyFile": "privkey.pem",
   "proxies": [
     {
       "domain": "example.com",
@@ -149,10 +170,4 @@ Example:
     }
   ]
 }
-```
-
-To run the proxy, just call `http-proxy` in the same folder as the configuration file:
-
-```
-$ http-proxy
 ```

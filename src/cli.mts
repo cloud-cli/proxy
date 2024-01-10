@@ -32,4 +32,6 @@ async function getConfig(): Promise<ProxyConfigFile> {
   for (const entry of proxies) {
     server.add(new ProxyEntry(entry));
   }
+
+  console.log('Proxy started on ports %d and %d', settings.httpPort, settings.httpsPort);
 })();
