@@ -40,13 +40,12 @@ export class ProxySettings {
   readonly httpPort: number = 80;
   readonly httpsPort: number = 443;
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
+  readonly enableDebug = !!process.env.DEBUG;
 
   constructor(p: Partial<ProxySettings> = {}) {
     Object.assign(this, p);
   }
 }
-
-const debugEnabled = !!process.env.DEBUG;
 
 export class ProxyServer extends EventEmitter {
   protected certs: Record<string, SecureContext> = {};
@@ -105,8 +104,8 @@ export class ProxyServer extends EventEmitter {
   protected async loadCertificate(folder: string) {
     const { certificatesFolder, certificateFile, keyFile } = this.settings;
 
-    if (debugEnabled) {
-      console.log(`.. ${folder}`);
+    if (this.settings.enableDebug) {
+      console.log(`+ ${folder}`);
     }
 
     return createSecureContext({
@@ -119,7 +118,7 @@ export class ProxyServer extends EventEmitter {
     const certs = (this.certs = {});
     const folder = this.settings.certificatesFolder;
 
-    if (debugEnabled) {
+    if (this.settings.enableDebug) {
       console.log(`Loading certificates from ${folder}`);
     }
 
@@ -141,15 +140,21 @@ export class ProxyServer extends EventEmitter {
     const origin = host ? new URL('http://' + host) : null;
     const proxyEntry = this.findProxyEntry(origin?.hostname, req.url);
 
-    if (debugEnabled) {
-      console.log(
-        '[%s] %s %s [from %s] => %s',
-        new Date().toISOString().slice(0, 10),
-        req.method,
-        req.url,
-        host,
-        proxyEntry?.target,
-      );
+    if (this.settings.enableDebug) {
+      const _end = res.end;
+      res.end = (...args) => {
+        console.log(
+          '[%s] %s %s [%s] => %d %s',
+          new Date().toISOString().slice(0, 19),
+          req.method,
+          req.url,
+          host,
+          res.statusCode,
+          proxyEntry?.target || '(none)',
+        );
+
+        return _end.apply(res, args);
+      }
     }
 
     if (!(origin && proxyEntry)) {
@@ -294,7 +299,7 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected handleError(error: any, res: ServerResponse) {
-    if (debugEnabled) {
+    if (this.settings.enableDebug) {
       console.error(error);
     }
 
