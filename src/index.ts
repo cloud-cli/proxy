@@ -303,7 +303,7 @@ export class ProxyServer extends EventEmitter {
       console.error(error);
     }
 
-    this.emit('error', error);
+    this.emit('proxyerror', error);
 
     if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
       res.writeHead(502);
