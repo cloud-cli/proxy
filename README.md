@@ -14,9 +14,9 @@ For example, to load certs for `*.foo.com` and `*.example.com`:
 
 ```js
 const settings = new ProxySettings({
-  certificatesFolder: "/var/ssl",
-  certificateFile: "cert.pem",
-  keyFile: "cert.key",
+  certificatesFolder: '/var/ssl',
+  certificateFile: 'cert.pem',
+  keyFile: 'cert.key',
 });
 ```
 
@@ -56,6 +56,13 @@ const settings = new ProxySettings({
 });
 ```
 
+**headers:**
+
+Adds headers to the proxy request transparently, so API calls can be proxied without exposing credentials.
+
+Use key/value pairs separated by a bar. Spaces around are ignored.
+
+Example `authentication: bearer abc123 | x-custom-header: 123`
 
 ## Usage
 
@@ -131,6 +138,8 @@ server.add(
 | ------------------ | -------------------------------------------------- |
 | DEBUG              | Enable debug logging                               |
 | PROXY_CERTS_FOLDER | Path to a folder where SSL certificates are stored |
+| HTTP_PORT          | Number. Same as `ProxySettings#httpPort`           |
+| HTTPS_PORT         | Number. Same as `ProxySettings#httpsPort`          |
 
 ## http-proxy
 
@@ -158,15 +167,16 @@ $ http-proxy
   "proxies": [
     {
       "domain": "example.com",
-      "redirectToDomain": "www.example.com",
+      "redirectToDomain": "www.example.com"
     },
     {
       "domain": "old.example.com",
-      "redirectToUrl": "https://www.example.com",
+      "redirectToUrl": "https://www.example.com"
     },
     {
       "domain": "www.example.com",
-      "target": "http://localhost:1234/",
+      "headers": "x-key: deadbeef",
+      "target": "http://localhost:1234/"
     }
   ]
 }

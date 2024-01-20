@@ -95,6 +95,25 @@ describe('ProxyServer', () => {
     server.reset();
   });
 
+  it('should add extra headers to request', async () => {
+    const { server } = setup();
+
+    await server.start();
+    server.add({
+      domain: 'localhost',
+      target: serverTarget,
+      headers: 'x-key:    value |    authorization: key',
+    });
+
+    const f = await fetch('http://localhost:' + server.ports.httpPort);
+    const response = await f.text();
+
+    expect(response).toContain('x-key: value');
+    expect(response).toContain('authorization: key');
+
+    server.reset();
+  });
+
   it('should proxy an HTTP request', async () => {
     const { server, createRequest } = setup();
     const { req, res, events, promise } = createRequest('GET', new URL('http://example.com/test'));

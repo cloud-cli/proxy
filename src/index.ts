@@ -23,6 +23,7 @@ export class ProxyEntry {
   readonly redirectToHttps: boolean = false;
   readonly redirectToUrl: string = '';
   readonly redirectToDomain: string = '';
+  readonly headers: string = '';
   readonly path: string = '';
   readonly cors: boolean = false;
 
@@ -37,8 +38,8 @@ export class ProxySettings {
   readonly certificatesFolder: string = String(process.env.PROXY_CERTS_FOLDER);
   readonly certificateFile: string = 'fullchain.pem';
   readonly keyFile: string = 'privkey.pem';
-  readonly httpPort: number = 80;
-  readonly httpsPort: number = 443;
+  readonly httpPort: number = Number(process.env.HTTP_PORT) || 80;
+  readonly httpsPort: number = Number(process.env.HTTPS_PORT) || 443;
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
   readonly enableDebug = !!process.env.DEBUG;
 
@@ -58,6 +59,11 @@ export class ProxyServer extends EventEmitter {
     super();
     this.settings = settings;
     this.reset();
+  }
+
+  get ports() {
+    const { httpPort, httpsPort } = this.settings;
+    return { httpPort, httpsPort };
   }
 
   createServers() {
@@ -101,40 +107,6 @@ export class ProxyServer extends EventEmitter {
     return this;
   }
 
-  protected async loadCertificate(folder: string) {
-    const { certificatesFolder, certificateFile, keyFile } = this.settings;
-
-    if (this.settings.enableDebug) {
-      console.log(`+ ${folder}`);
-    }
-
-    return createSecureContext({
-      cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
-      key: await readFile(join(certificatesFolder, folder, keyFile), 'utf8'),
-    });
-  }
-
-  protected async loadCertificates() {
-    const certs = (this.certs = {});
-    const folder = this.settings.certificatesFolder;
-
-    if (this.settings.enableDebug) {
-      console.log(`Loading certificates from ${folder}`);
-    }
-
-    const localCerts = !existsSync(folder)
-      ? []
-      : await readdir(folder, {
-          withFileTypes: true,
-        });
-
-    const folders = localCerts.filter((entry) => entry.isDirectory()).map((dir) => dir.name);
-
-    for (const rootDomain of folders) {
-      certs[rootDomain] = await this.loadCertificate(rootDomain);
-    }
-  }
-
   handleRequest(req: IncomingMessage, res: ServerResponse, isSsl?: boolean) {
     const host = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
     const origin = host ? new URL('http://' + host) : null;
@@ -154,7 +126,7 @@ export class ProxyServer extends EventEmitter {
         );
 
         return _end.apply(res, args);
-      }
+      };
     }
 
     if (!(origin && proxyEntry)) {
@@ -203,6 +175,11 @@ export class ProxyServer extends EventEmitter {
 
     const proxyRequest = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: req.method });
     this.setHeaders(req, proxyRequest);
+
+    if (proxyEntry.headers) {
+      this.setExtraHeaders(proxyRequest, proxyEntry.headers);
+    }
+
     proxyRequest.setHeader('host', this.getHostnameFromUrl(String(target)));
     proxyRequest.setHeader('x-forwarded-for', req.headers.host);
     proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
@@ -227,15 +204,56 @@ export class ProxyServer extends EventEmitter {
     });
   }
 
+  protected async loadCertificate(folder: string) {
+    const { certificatesFolder, certificateFile, keyFile } = this.settings;
+
+    if (this.settings.enableDebug) {
+      console.log(`+ ${folder}`);
+    }
+
+    return createSecureContext({
+      cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
+      key: await readFile(join(certificatesFolder, folder, keyFile), 'utf8'),
+    });
+  }
+
+  protected async loadCertificates() {
+    const certs = (this.certs = {});
+    const folder = this.settings.certificatesFolder;
+
+    if (this.settings.enableDebug) {
+      console.log(`Loading certificates from ${folder}`);
+    }
+
+    const localCerts = !existsSync(folder)
+      ? []
+      : await readdir(folder, {
+          withFileTypes: true,
+        });
+
+    const folders = localCerts.filter((entry) => entry.isDirectory()).map((dir) => dir.name);
+
+    for (const rootDomain of folders) {
+      certs[rootDomain] = await this.loadCertificate(rootDomain);
+    }
+  }
+
+  protected setExtraHeaders(req: ClientRequest, headersString: string) {
+    headersString.split('|').forEach((header) => {
+      const [key, value] = header.split(':', 2);
+      req.setHeader(key.trim(), value.trim());
+    });
+  }
+
   protected findProxyEntry(domain: string, incomingUrl: string) {
     const urlPath = new URL(incomingUrl, 'http://localhost').pathname;
-    const byDomain = this.proxies.filter(p => p.domain === domain);
+    const byDomain = this.proxies.filter((p) => p.domain === domain);
 
     if (byDomain.length === 1) {
       return byDomain[0];
     }
 
-    return byDomain.find(p => p.path && urlPath.startsWith(p.path)) || null;
+    return byDomain.find((p) => p.path && urlPath.startsWith(p.path)) || null;
   }
 
   protected getSslOptions(): HttpsServerOptions {
