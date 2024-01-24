@@ -167,7 +167,9 @@ export class ProxyServer extends EventEmitter {
     }
 
     const target = proxyEntry.target;
-    const url = new URL(req.url, target);
+    // URL always starts with /, which defeats the purpose of a target with a path
+    // removing the first bar allows for a relative path
+    const url = new URL(req.url.slice(1), target);
 
     if (proxyEntry.path) {
       url.pathname = url.pathname.replace(proxyEntry.path, '');
