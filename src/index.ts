@@ -20,6 +20,7 @@ import { existsSync } from 'node:fs';
 export class ProxyEntry {
   readonly domain: string;
   readonly target: string | URL;
+  readonly authorization: string = '';
   readonly redirectToHttps: boolean = false;
   readonly redirectToUrl: string = '';
   readonly redirectToDomain: string = '';
@@ -131,6 +132,12 @@ export class ProxyServer extends EventEmitter {
 
     if (!(origin && proxyEntry)) {
       res.writeHead(404, 'Not found');
+      res.end();
+      return;
+    }
+
+    if (proxyEntry.authorization && proxyEntry.authorization.toLowerCase() !== req.headers.authorization.toLowerCase()) {
+      res.writeHead(401);
       res.end();
       return;
     }
