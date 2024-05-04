@@ -72,9 +72,9 @@ export class ProxyServer extends EventEmitter {
     const ssl = this.getSslOptions();
 
     this.servers = [
-      createHttpServer((req, res) => this.handleRequest(req, res, false)).listen(httpPort),
-      createHttpsServer(ssl, (req, res) => this.handleRequest(req, res, true)).listen(httpsPort),
-    ];
+      httpPort && createHttpServer((req, res) => this.handleRequest(req, res, false)).listen(httpPort),
+      httpsPort && createHttpsServer(ssl, (req, res) => this.handleRequest(req, res, true)).listen(httpsPort),
+    ].filter(Boolean);
   }
 
   async start() {

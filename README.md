@@ -47,7 +47,8 @@ const settings = new ProxySettings({
 
 **httpPort/httpsPort:**
 
-Allow you to change the http ports. Defaults are `80` and `443`
+Allow you to change the http ports. Defaults are `80` and `443`.
+Set to zero if you want to disable http or https connections.
 
 ```js
 const settings = new ProxySettings({
