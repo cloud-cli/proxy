@@ -1,3 +1,4 @@
+import { afterAll, beforeAll, describe, expect, it , vi} from 'vitest';
 import { ProxyServer, ProxySettings } from '.';
 import { createServer } from 'node:http';
 
@@ -66,9 +67,9 @@ describe('ProxyServer', () => {
         body: '',
         headers: {},
         setHeader: (k, v) => (res.headers[k] = v),
-        writeHead: jest.fn(() => res),
-        write: jest.fn((c) => (res.body += c)),
-        end: jest.fn(() => resolve()),
+        writeHead: vi.fn(() => res),
+        write: vi.fn((c) => (res.body += c)),
+        end: vi.fn(() => resolve()),
       };
 
       const promise = new Promise((r) => (resolve = r));

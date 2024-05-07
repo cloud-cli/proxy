@@ -42,6 +42,7 @@ export class ProxySettings {
   readonly httpPort: number = Number(process.env.HTTP_PORT) || 80;
   readonly httpsPort: number = Number(process.env.HTTPS_PORT) || 443;
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
+  readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
 
   constructor(p: Partial<ProxySettings> = {}) {
@@ -136,7 +137,10 @@ export class ProxyServer extends EventEmitter {
       return;
     }
 
-    if (proxyEntry.authorization && proxyEntry.authorization.toLowerCase() !== req.headers.authorization.toLowerCase()) {
+    if (
+      proxyEntry.authorization &&
+      proxyEntry.authorization.toLowerCase() !== req.headers.authorization.toLowerCase()
+    ) {
       res.writeHead(401);
       res.end();
       return;
