@@ -6,8 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "jest",
-    "tdd": "jest --watchAll"
+    "test": "vitest"
   },
   "bin": {
     "http-proxy": "./cli.mjs"
