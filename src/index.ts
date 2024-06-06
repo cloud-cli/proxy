@@ -141,8 +141,8 @@ export class ProxyServer extends EventEmitter {
       const incomingHeader = (req.headers.authorization || '').replace('Basic', '').trim();
 
       if (incomingHeader !== proxyEntry.authorization) {
-        res.writeHead(401);
         res.setHeader('WWW-Authenticate', 'Basic realm="Y u no password"');
+        res.writeHead(401);
         res.end();
 
         return;
