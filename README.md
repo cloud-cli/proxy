@@ -65,6 +65,11 @@ Use key/value pairs separated by a bar. Spaces around are ignored.
 
 Example `authentication: bearer abc123 | x-custom-header: 123`
 
+**authorization:**
+
+Add this option to request user authentication on client/side via headers.
+This activates the HTTP Basic authentication. The value on this field should be `user:password` encoded as `base64`.
+
 ## Usage
 
 ```ts

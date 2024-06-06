@@ -137,13 +137,16 @@ export class ProxyServer extends EventEmitter {
       return;
     }
 
-    if (
-      proxyEntry.authorization &&
-      proxyEntry.authorization.toLowerCase() !== req.headers.authorization.toLowerCase()
-    ) {
-      res.writeHead(401);
-      res.end();
-      return;
+    if (proxyEntry.authorization) {
+      const incomingHeader = (req.headers.authorization || '').replace('Basic', '').trim();
+
+      if (incomingHeader !== proxyEntry.authorization) {
+        res.writeHead(401);
+        res.setHeader('WWW-Authenticate', 'Basic realm="Y u no password"');
+        res.end();
+
+        return;
+      }
     }
 
     if (proxyEntry.redirectToDomain) {

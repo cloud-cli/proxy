@@ -1,6 +1,6 @@
-import { afterAll, beforeAll, describe, expect, it , vi} from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ProxyServer, ProxySettings } from '.';
-import { createServer } from 'node:http';
+import { IncomingMessage, ServerResponse, createServer } from 'node:http';
 
 const port = 2000 + ~~(Math.random() * 1000);
 const serverTarget = 'http://localhost:' + port;
@@ -33,6 +33,11 @@ describe('ProxySettings', () => {
 });
 
 describe('ProxyServer', () => {
+  interface ResponseExtras {
+    body: any;
+    headers: any;
+  }
+
   function setup() {
     const getPort = () => Math.floor(2000 + Math.random() * 5000);
     const settings = new ProxySettings({
@@ -53,7 +58,7 @@ describe('ProxyServer', () => {
         end() {},
       };
 
-      const req: any = {
+      const req: Partial<IncomingMessage> = {
         method,
         url: url.pathname,
         headers: {
@@ -63,18 +68,23 @@ describe('ProxyServer', () => {
         on: (e, f) => (events[e] = f),
       };
 
-      const res: any = {
+      const res: Partial<ServerResponse> & ResponseExtras = {
         body: '',
         headers: {},
-        setHeader: (k, v) => (res.headers[k] = v),
-        writeHead: vi.fn(() => res),
+        setHeader: (k, v) => (res.headers[k] = v) as any,
+        writeHead: vi.fn(() => res) as any,
         write: vi.fn((c) => (res.body += c)),
         end: vi.fn(() => resolve()),
       };
 
       const promise = new Promise((r) => (resolve = r));
 
-      return { req, res, events, promise };
+      return {
+        req: req as unknown as IncomingMessage,
+        res: res as unknown as ServerResponse & ResponseExtras,
+        events,
+        promise,
+      };
     }
 
     return { server, settings, createRequest };
@@ -111,6 +121,47 @@ describe('ProxyServer', () => {
 
     expect(response).toContain('x-key: value');
     expect(response).toContain('authorization: key');
+
+    server.reset();
+  });
+
+  it('should ask for authentication', async () => {
+    const { server, createRequest } = setup();
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/test'));
+
+    await server.start();
+    server.add({
+      domain: 'example.com',
+      target: serverTarget,
+      redirectToHttps: false,
+      authorization: 'dGVzdDp0ZXN0',
+    });
+
+    server.handleRequest(req, res, false);
+    await promise;
+
+    expect(res.writeHead).toHaveBeenCalledWith(401);
+    expect(res.headers['WWW-Authenticate']).toBe('Basic realm="Y u no password"');
+
+    server.reset();
+  });
+
+  it('should allow requests that need authentication', async () => {
+    const { server, createRequest } = setup();
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/test'), { 'authorization': 'Basic dGVzdDp0ZXN0' });
+
+    await server.start();
+    server.add({
+      domain: 'example.com',
+      target: serverTarget,
+      redirectToHttps: false,
+      authorization: 'dGVzdDp0ZXN0',
+    });
+
+    server.handleRequest(req, res, false);
+    await promise;
+
+    expect(res.headers['WWW-Authenticate']).not.toBeDefined();
 
     server.reset();
   });
