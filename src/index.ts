@@ -27,6 +27,7 @@ export class ProxyEntry {
   readonly headers: string = '';
   readonly path: string = '';
   readonly cors: boolean = false;
+  readonly preserveHost: boolean = false;
 
   constructor(p: Partial<ProxyEntry>) {
     Object.assign(this, p);
@@ -196,7 +197,10 @@ export class ProxyServer extends EventEmitter {
       this.setExtraHeaders(proxyRequest, proxyEntry.headers);
     }
 
-    proxyRequest.setHeader('host', this.getHostnameFromUrl(String(target)));
+    if (!proxyEntry.preserveHost) {
+      proxyRequest.setHeader('host', this.getHostnameFromUrl(String(target)));
+    }
+
     proxyRequest.setHeader('x-forwarded-for', req.headers.host);
     proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
     proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
