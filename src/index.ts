@@ -111,9 +111,9 @@ export class ProxyServer extends EventEmitter {
   }
 
   handleRequest(req: IncomingMessage, res: ServerResponse, isSsl?: boolean) {
-    const host = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
-    const origin = host ? new URL('http://' + host) : null;
-    const proxyEntry = this.findProxyEntry(origin?.hostname, req.url);
+    const originHost = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
+    const originlUrl = originHost ? new URL('http://' + originHost) : null;
+    const proxyEntry = this.findProxyEntry(originlUrl?.hostname, req.url);
 
     if (this.settings.enableDebug) {
       const _end = res.end;
@@ -123,7 +123,7 @@ export class ProxyServer extends EventEmitter {
           new Date().toISOString().slice(0, 19),
           req.method,
           req.url,
-          host,
+          originHost,
           res.statusCode,
           proxyEntry?.target || '(none)',
         );
@@ -132,7 +132,7 @@ export class ProxyServer extends EventEmitter {
       };
     }
 
-    if (!(origin && proxyEntry)) {
+    if (!(originlUrl && proxyEntry)) {
       res.writeHead(404, 'Not found');
       res.end();
       return;
@@ -166,7 +166,7 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxyEntry.redirectToHttps && !isSsl) {
-      const newURL = new URL(req.url, `https://${req.headers.host}`);
+      const newURL = new URL(req.url, `https://${originHost}`);
       res.setHeader('Location', String(newURL));
       res.writeHead(301, 'HTTPS is better');
       res.end();
@@ -181,24 +181,27 @@ export class ProxyServer extends EventEmitter {
       return;
     }
 
-    const target = proxyEntry.target;
+    const targetAddress = proxyEntry.target;
     // URL always starts with /, which defeats the purpose of a target with a path
     // removing the first bar allows for a relative path
-    const url = new URL(req.url.slice(1), target);
+    const targetUrl = new URL(req.url.slice(1), targetAddress);
 
     if (proxyEntry.path) {
-      url.pathname = url.pathname.replace(proxyEntry.path, '');
+      targetUrl.pathname = targetUrl.pathname.replace(proxyEntry.path, '');
     }
 
-    const proxyRequest = (url.protocol === 'https:' ? httpsRequest : httpRequest)(url, { method: req.method });
+    const proxyRequest = (targetUrl.protocol === 'https:' ? httpsRequest : httpRequest)(targetUrl, { method: req.method });
     this.setHeaders(req, proxyRequest);
 
     if (proxyEntry.headers) {
       this.setExtraHeaders(proxyRequest, proxyEntry.headers);
     }
 
-    if (!proxyEntry.preserveHost) {
-      proxyRequest.setHeader('host', this.getHostnameFromUrl(String(target)));
+    if (proxyEntry.preserveHost) {
+      proxyRequest.setHeader('host', req.headers.host);
+    } else {
+      const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
+      proxyRequest.setHeader('host', host);
     }
 
     proxyRequest.setHeader('x-forwarded-for', req.headers.host);
@@ -316,11 +319,6 @@ export class ProxyServer extends EventEmitter {
     for (const header of headers) {
       to.setHeader(header[0], header[1]);
     }
-  }
-
-  protected getHostnameFromUrl(string: string) {
-    const url = new URL(string);
-    return url.hostname + (url.port ? ':' + url.port : '');
   }
 
   protected setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
