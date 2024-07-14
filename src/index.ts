@@ -272,7 +272,7 @@ export class ProxyServer extends EventEmitter {
     const requestPath = new URL(incomingUrl, 'http://localhost').pathname;
 
     // test example.com (exact match) or *.example.com for <anything>.example.com
-    const byDomain = this.proxies.filter((p) => p.domain.replace('*.', '') === domain);
+    const byDomain = this.proxies.filter((p) => p.domain === domain || (p.domain.startsWith('*.') && p.domain.slice(2) === domain));
 
     if (byDomain.length === 1) {
       return byDomain[0];
