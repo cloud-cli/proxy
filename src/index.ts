@@ -183,7 +183,7 @@ export class ProxyServer extends EventEmitter {
 
     const targetAddress = proxyEntry.target;
     // URL always starts with /, which defeats the purpose of a target with a path
-    // removing the first bar allows for a relative path
+    // removing the first slash allows for a relative path
     const targetUrl = new URL(req.url.slice(1), targetAddress);
 
     if (proxyEntry.path) {
@@ -269,14 +269,25 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected findProxyEntry(domain: string, incomingUrl: string) {
-    const urlPath = new URL(incomingUrl, 'http://localhost').pathname;
-    const byDomain = this.proxies.filter((p) => p.domain === domain);
+    const requestPath = new URL(incomingUrl, 'http://localhost').pathname;
+
+    // test example.com (exact match) or *.example.com for <anything>.example.com
+    const byDomain = this.proxies.filter((p) => p.domain.replace('*.', '') === domain);
 
     if (byDomain.length === 1) {
       return byDomain[0];
     }
 
-    return byDomain.find((p) => p.path && urlPath.startsWith(p.path)) || null;
+    // with path /api
+    // example.com/api      => [target]
+    // example.com/api/foo  => [target]/foo
+
+    // without path
+    // example.com          => [target]
+
+    return byDomain.find((p) => p.path && (requestPath === p.path || requestPath.startsWith(p.path + '/')))
+      || byDomain.find((p) => !p.path)
+      || null;
   }
 
   protected getSslOptions(): HttpsServerOptions {
