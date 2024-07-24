@@ -113,7 +113,7 @@ export class ProxyServer extends EventEmitter {
   handleRequest(req: IncomingMessage, res: ServerResponse, isSsl?: boolean) {
     const originHost = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
     const originlUrl = originHost ? new URL('http://' + originHost) : null;
-    const proxyEntry = this.findProxyEntry(originlUrl?.hostname, req.url);
+    const proxyEntry = originlUrl ? this.findProxyEntry(originlUrl.hostname, req.url) : null;
 
     if (this.settings.enableDebug) {
       const _end = res.end;
