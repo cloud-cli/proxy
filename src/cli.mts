@@ -1,37 +1,25 @@
-import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { join } from "node:path";
-import { ProxyServer, ProxySettings, ProxyEntry } from "./index.js";
-
-interface ProxyConfigFile extends Partial<ProxySettings> {
-  proxies?: ProxyEntry[];
-}
-
-async function getConfig(): Promise<ProxyConfigFile> {
-  const configModuleFile = join(process.cwd(), "proxy.config.mjs");
-  const configJsonFile = join(process.cwd(), "proxy.config.json");
-
-  if (existsSync(configModuleFile)) {
-    return await import(configModuleFile);
-  }
-
-  if (existsSync(configJsonFile)) {
-    return JSON.parse(await readFile(configJsonFile, "utf-8"));
-  }
-
-  return {};
-}
+import { ProxyServer, ProxySettings, ProxyEntry, loadConfig } from "./index.js";
 
 (async () => {
-  const { proxies = [], ...config } = await getConfig();
-  const settings = new ProxySettings(config);
-  const server = new ProxyServer(settings);
+  try {
+    const { proxies = [], ...config } = await loadConfig();
+    const settings = new ProxySettings(config);
+    const server = new ProxyServer(settings);
 
-  server.start();
+    server.start();
 
-  for (const entry of proxies) {
-    server.add(new ProxyEntry(entry));
+    for (const entry of proxies) {
+      server.add(new ProxyEntry(entry));
+    }
+
+    console.log(
+      "Proxy started on ports %d (http) and %d (https)",
+      settings.httpPort,
+      settings.httpsPort
+    );
+  } catch (error) {
+    console.error(error);
+    console.log("See https://github.com/cloud-cli/proxy/blob/main/README.md");
+    process.exit(1);
   }
-
-  console.log('Proxy started on ports %d (http) and %d (https)', settings.httpPort, settings.httpsPort);
 })();

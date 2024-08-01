@@ -34,6 +34,10 @@ export class ProxyEntry {
   }
 }
 
+interface ProxySettingsFromFile extends Partial<ProxySettings> {
+  proxies?: ProxyEntry[];
+}
+
 export type MinimalProxyEntry = Partial<ProxyEntry> & Pick<ProxyEntry, 'domain'>;
 
 export class ProxySettings {
@@ -377,9 +381,23 @@ export class ProxyServer extends EventEmitter {
   }
 }
 
-export async function loadConfig(path: string): Promise<ProxySettings> {
-  if (!existsSync(path)) {
-    throw new Error('Configuration not found at ' + path);
+export async function loadConfig(path?: string, optional = false): Promise<ProxySettingsFromFile> {
+  if (!path) {
+    const candidates = [
+      join(process.cwd(), "proxy.config.mjs"),
+      join(process.cwd(), "proxy.config.js"),
+      join(process.cwd(), "proxy.config.json"),
+    ];
+
+    path = candidates.find(path => existsSync(path));
+  }
+
+  if (!path || !existsSync(path)) {
+    if (optional) {
+      return null;
+    }
+
+    throw new Error('Configuration not found');
   }
 
   if (path.endsWith('.json')) {

@@ -194,3 +194,9 @@ $ http-proxy
 ```
 
 ## Configuration from file
+
+```ts
+import { loadConfig } from '@cloud-cli/proxy';
+
+loadConfig('./proxy.config.json')
+```

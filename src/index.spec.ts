@@ -306,10 +306,16 @@ describe('ProxyServer', () => {
   });
 });
 
-it('should load config from a file', async () => {
-  const configEsm = await loadConfig('src/proxy.config.mjs');
-  const configJson = await loadConfig('src/proxy.config.json');
+describe('loadConfig', () => {
+  it('should load config from a file', async () => {
+    const configEsm = await loadConfig('src/proxy.config.mjs');
+    const configJson = await loadConfig('src/proxy.config.json');
 
-  expect(configEsm.autoReload).toBe(123);
-  expect(configJson.autoReload).toBe(456);
-})
+    expect(configEsm.autoReload).toBe(123);
+    expect(configJson.autoReload).toBe(456);
+  });
+
+  it('should load config from a file', async () => {
+    expect(await loadConfig('', true)).toBe(null);
+  });
+});
