@@ -178,7 +178,7 @@ export class ProxyServer extends EventEmitter {
       return;
     }
 
-    const isCorsPreflight = req.method === 'OPTIONS' && proxyEntry.cors && req.headers.origin;
+    const isCorsPreflight = Boolean(req.method === 'OPTIONS' && proxyEntry.cors && req.headers.origin);
     if (isCorsPreflight) {
       this.setCorsHeaders(req, res);
       res.writeHead(204, { 'Content-Length': '0' });
@@ -388,9 +388,10 @@ export async function loadConfig(path: string): Promise<ProxySettings> {
     );
   }
 
-  return await import(path);
+  const mod = await import(path);
+  return mod.default;
 }
 
 export function defineConfig(config: ProxySettings) {
-  return config;
+  return new ProxySettings(config);
 }

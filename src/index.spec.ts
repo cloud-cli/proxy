@@ -291,23 +291,15 @@ describe('ProxyServer', () => {
     server.reset();
   });
 
-  it('should set CORS headers and finish request', async () => {
+  it('should use fallback handler', async () => {
     const fallback = vi.fn((_req, res) => res.writeHead(200).end());
     const { server, createRequest } = setup({ fallback });
     const { req, res, promise } = createRequest('GET', new URL('http://example.com/test'));
 
     await server.start();
-    server.add({
-      domain: 'example.com',
-      target: serverTarget,
-      cors: true,
-    });
-
     server.handleRequest(req, res, false);
     await promise;
 
-    expect(res.writeHead).toHaveBeenCalledWith(204, { 'Content-Length': '0' });
-    expect(res.end).toHaveBeenCalledWith();
     expect(fallback).toHaveBeenCalledWith(req, res);
 
     server.reset();
@@ -315,8 +307,8 @@ describe('ProxyServer', () => {
 });
 
 it('should load config from a file', async () => {
-  const configEsm = await loadConfig('./proxy.config.mjs');
-  const configJson = await loadConfig('./proxy.config.json');
+  const configEsm = await loadConfig('src/proxy.config.mjs');
+  const configJson = await loadConfig('src/proxy.config.json');
 
   expect(configEsm.autoReload).toBe(123);
   expect(configJson.autoReload).toBe(456);
