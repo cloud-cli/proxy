@@ -70,6 +70,11 @@ Example `authentication: bearer abc123 | x-custom-header: 123`
 Add this option to request user authentication on client/side via headers.
 This activates the HTTP Basic authentication. The value on this field should be `user:password` encoded as `base64`.
 
+**fallback:**
+
+If you want to use the proxy instance as a middleware, add `fallback` as an option, with a function that can handle a request.
+When `server.handleRequest` is called, and no proxy entries we matched by a request, the fallback function will be called instead.
+
 ## Usage
 
 ```ts
@@ -187,3 +192,5 @@ $ http-proxy
   ]
 }
 ```
+
+## Configuration from file

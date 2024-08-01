@@ -45,6 +45,7 @@ export class ProxySettings {
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
   readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
+  readonly fallback: (req: IncomingMessage, res: ServerResponse) => void;
 
   constructor(p: Partial<ProxySettings> = {}) {
     Object.assign(this, p);
@@ -133,6 +134,10 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (!(originlUrl && proxyEntry)) {
+      if (this.settings.fallback) {
+        return this.settings.fallback(req, res);
+      }
+
       res.writeHead(404, 'Not found');
       res.end();
       return;
@@ -370,4 +375,22 @@ export class ProxyServer extends EventEmitter {
       res.end();
     }
   }
+}
+
+export async function loadConfig(path: string): Promise<ProxySettings> {
+  if (!existsSync(path)) {
+    throw new Error('Configuration not found at ' + path);
+  }
+
+  if (path.endsWith('.json')) {
+    return new ProxySettings(
+      JSON.parse(await readFile(path, "utf-8"))
+    );
+  }
+
+  return await import(path);
+}
+
+export function defineConfig(config: ProxySettings) {
+  return config;
 }

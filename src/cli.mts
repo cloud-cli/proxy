@@ -33,5 +33,5 @@ async function getConfig(): Promise<ProxyConfigFile> {
     server.add(new ProxyEntry(entry));
   }
 
-  console.log('Proxy started on ports %d and %d', settings.httpPort, settings.httpsPort);
+  console.log('Proxy started on ports %d (http) and %d (https)', settings.httpPort, settings.httpsPort);
 })();
