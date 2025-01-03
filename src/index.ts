@@ -4,6 +4,7 @@ import {
   IncomingMessage,
   ClientRequest,
   ServerResponse,
+  IncomingHttpHeaders,
 } from 'node:http';
 import {
   createServer as createHttpsServer,
@@ -16,6 +17,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
+import { Socket } from 'node:net';
 
 export class ProxyEntry {
   readonly domain: string;
@@ -41,7 +43,7 @@ interface ProxySettingsFromFile extends Partial<ProxySettings> {
 export type MinimalProxyEntry = Partial<ProxyEntry> & Pick<ProxyEntry, 'domain'>;
 
 export class ProxySettings {
-  readonly certificatesFolder: string = String(process.env.PROXY_CERTS_FOLDER);
+  readonly certificatesFolder: string = String(process.env.PROXY_CERTS_FOLDER || process.cwd());
   readonly certificateFile: string = 'fullchain.pem';
   readonly keyFile: string = 'privkey.pem';
   readonly httpPort: number = Number(process.env.HTTP_PORT) || 80;
@@ -55,6 +57,12 @@ export class ProxySettings {
     Object.assign(this, p);
   }
 }
+
+export type ProxyIncomingMessage = IncomingMessage & {
+  originHost: string;
+  originlUrl: URL | null;
+  proxyEntry: ProxyEntry;
+};
 
 export class ProxyServer extends EventEmitter {
   protected certs: Record<string, SecureContext> = {};
@@ -79,8 +87,8 @@ export class ProxyServer extends EventEmitter {
     const ssl = this.getSslOptions();
 
     this.servers = [
-      httpPort && createHttpServer((req, res) => this.handleRequest(req, res, false)).listen(httpPort),
-      httpsPort && createHttpsServer(ssl, (req, res) => this.handleRequest(req, res, true)).listen(httpsPort),
+      httpPort && this.setupServer(createHttpServer(), false).listen(httpPort),
+      httpsPort && this.setupServer(createHttpsServer(ssl), true).listen(httpsPort),
     ].filter(Boolean);
   }
 
@@ -115,14 +123,118 @@ export class ProxyServer extends EventEmitter {
     return this;
   }
 
-  handleRequest(req: IncomingMessage, res: ServerResponse, isSsl?: boolean) {
+  onRequest(_req: IncomingMessage, res: ServerResponse, isSsl: boolean) {
+    const req = this.matchProxy(_req);
+    const { proxyEntry } = req;
+
+    if (!proxyEntry) {
+      return;
+    }
+
+    const proxyRequest = this.createRequest(req, res, isSsl);
+
+    if (!proxyRequest) {
+      return;
+    }
+
+    req.on('data', (chunk) => proxyRequest.write(chunk));
+    req.on('end', () => proxyRequest.end());
+
+    proxyRequest.on('error', (error) => this.handleError(error, res));
+    proxyRequest.on('response', (proxyRes) => {
+      this.setHeaders(proxyRes, res);
+
+      const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
+      if (isCorsSimple) {
+        this.setCorsHeaders(req, res);
+      }
+
+      res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
+
+      proxyRes.on('data', (chunk) => res.write(chunk));
+      proxyRes.on('end', () => res.end());
+    });
+  }
+
+  onUpgrade(_req: IncomingMessage, socket: Socket, head: any, isSsl: boolean) {
+    const notValid = _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
+    const req = this.matchProxy(_req);
+
+    if (notValid || !req.proxyEntry) {
+      socket.destroy();
+      return;
+    }
+
+    const proxyReq = this.createRequest(req, socket as any, isSsl);
+
+    socket.setTimeout(0);
+    socket.setNoDelay(true);
+    socket.setKeepAlive(true, 0);
+
+    if (head && head.length) {
+      socket.unshift(head);
+    }
+
+    proxyReq.on('error', (error) => this.emit('proxyerror', error));
+    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+      proxySocket.on('error', (error) => this.emit('proxyerror', error));
+
+      socket.on('error', (error) => {
+        this.emit('proxyerror', error);
+        proxySocket.end();
+      });
+
+      if (proxyHead && proxyHead.length) {
+        proxySocket.unshift(proxyHead);
+      }
+
+      socket.write(this.createWebSocketResponseHeaders(proxyRes.headers));
+
+      proxySocket.pipe(socket).pipe(proxySocket);
+    });
+
+    return proxyReq.end();
+  }
+
+  protected createWebSocketResponseHeaders(headers: IncomingHttpHeaders) {
+    return (
+      Object.entries(headers)
+        .reduce(
+          function (head, next) {
+            const [key, value] = next;
+
+            if (!Array.isArray(value)) {
+              head.push(`${key}: ${value}`);
+              return head;
+            }
+
+            for (const next of value) {
+              head.push(`${key}: ${next}`);
+            }
+
+            return head;
+          },
+          ['HTTP/1.1 101 Switching Protocols']
+        )
+        .join('\r\n') + '\r\n\r\n'
+    );
+  }
+
+  protected matchProxy(req: IncomingMessage) {
     const originHost = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
     const originlUrl = originHost ? new URL('http://' + originHost) : null;
     const proxyEntry = originlUrl ? this.findProxyEntry(originlUrl.hostname, req.url) : null;
 
+    Object.assign(req, { originHost, originlUrl, proxyEntry });
+
+    return req as ProxyIncomingMessage;
+  }
+
+  protected createRequest(req: ProxyIncomingMessage, res: ServerResponse, isSsl: boolean) {
+    const { originHost, originlUrl, proxyEntry } = req;
+
     if (this.settings.enableDebug) {
-      const _end = res.end;
-      res.end = (...args) => {
+      res.on('finish', () => {
         console.log(
           '[%s] %s %s [%s] => %d %s',
           new Date().toISOString().slice(0, 19),
@@ -130,16 +242,15 @@ export class ProxyServer extends EventEmitter {
           req.url,
           originHost,
           res.statusCode,
-          proxyEntry?.target || '(none)',
+          proxyEntry?.target || '(none)'
         );
-
-        return _end.apply(res, args);
-      };
+      });
     }
 
     if (!(originlUrl && proxyEntry)) {
       if (this.settings.fallback) {
-        return this.settings.fallback(req, res);
+        this.settings.fallback(req, res);
+        return;
       }
 
       res.writeHead(404, 'Not found');
@@ -199,7 +310,8 @@ export class ProxyServer extends EventEmitter {
       targetUrl.pathname = targetUrl.pathname.replace(proxyEntry.path, '');
     }
 
-    const proxyRequest = (targetUrl.protocol === 'https:' ? httpsRequest : httpRequest)(targetUrl, { method: req.method });
+    const requestOptions = { method: req.method };
+    const proxyRequest = (targetUrl.protocol === 'https:' ? httpsRequest : httpRequest)(targetUrl, requestOptions);
     this.setHeaders(req, proxyRequest);
 
     if (proxyEntry.headers) {
@@ -217,23 +329,14 @@ export class ProxyServer extends EventEmitter {
     proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
     proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
 
-    req.on('data', (chunk) => proxyRequest.write(chunk));
-    req.on('end', () => proxyRequest.end());
+    return proxyRequest;
+  }
 
-    proxyRequest.on('error', (error) => this.handleError(error, res));
-    proxyRequest.on('response', (proxyRes) => {
-      this.setHeaders(proxyRes, res);
+  protected setupServer(server: any, isSsl: boolean) {
+    server.on('request', (req, res) => this.onRequest(req, res, isSsl));
+    server.on('upgrade', (req, socket, head) => this.onUpgrade(req, socket, head, isSsl));
 
-      const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
-      if (isCorsSimple) {
-        this.setCorsHeaders(req, res);
-      }
-
-      res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
-
-      proxyRes.on('data', (chunk) => res.write(chunk));
-      proxyRes.on('end', () => res.end());
-    });
+    return server;
   }
 
   protected async loadCertificate(folder: string) {
@@ -285,9 +388,8 @@ export class ProxyServer extends EventEmitter {
     const byDomain = this.proxies.filter(
       (p) =>
         p.domain === domainFromRequest ||
-        (p.domain.startsWith("*.") &&
-          (p.domain.slice(2) === requestParentDomain ||
-            p.domain.slice(2) === domainFromRequest))
+        (p.domain.startsWith('*.') &&
+          (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === domainFromRequest))
     );
 
     if (byDomain.length === 1) {
@@ -301,9 +403,11 @@ export class ProxyServer extends EventEmitter {
     // without path
     // example.com          => [target]
 
-    return byDomain.find((p) => p.path && (requestPath === p.path || requestPath.startsWith(p.path + '/')))
-      || byDomain.find((p) => !p.path)
-      || null;
+    return (
+      byDomain.find((p) => p.path && (requestPath === p.path || requestPath.startsWith(p.path + '/'))) ||
+      byDomain.find((p) => !p.path) ||
+      null
+    );
   }
 
   protected getSslOptions(): HttpsServerOptions {
@@ -384,12 +488,12 @@ export class ProxyServer extends EventEmitter {
 export async function loadConfig(path?: string, optional = false): Promise<ProxySettingsFromFile> {
   if (!path) {
     const candidates = [
-      join(process.cwd(), "proxy.config.mjs"),
-      join(process.cwd(), "proxy.config.js"),
-      join(process.cwd(), "proxy.config.json"),
+      join(process.cwd(), 'proxy.config.mjs'),
+      join(process.cwd(), 'proxy.config.js'),
+      join(process.cwd(), 'proxy.config.json'),
     ];
 
-    path = candidates.find(path => existsSync(path));
+    path = candidates.find((path) => existsSync(path));
   }
 
   if (!path || !existsSync(path)) {
@@ -401,9 +505,7 @@ export async function loadConfig(path?: string, optional = false): Promise<Proxy
   }
 
   if (path.endsWith('.json')) {
-    return new ProxySettings(
-      JSON.parse(await readFile(path, "utf-8"))
-    );
+    return new ProxySettings(JSON.parse(await readFile(path, 'utf-8')));
   }
 
   const mod = await import(path);

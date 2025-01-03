@@ -73,9 +73,9 @@ This activates the HTTP Basic authentication. The value on this field should be 
 **fallback:**
 
 If you want to use the proxy instance as a middleware, add `fallback` as an option, with a function that can handle a request.
-When `server.handleRequest` is called, and no proxy entries we matched by a request, the fallback function will be called instead.
+When `server.onRequest` is called, and no proxy entries we matched by a request, the fallback function will be called instead.
 
-## Usage
+## API
 
 ```ts
 import { ProxyServer, ProxySettings, ProxyEntry } from '@cloud-cli/proxy';
@@ -103,7 +103,10 @@ server.reset();
 server.reload();
 
 // OPTIONAL: handle a request coming from another http(s) server
-server.handleRequest(request, response, /* isSSL */ false);
+server.onRequest(request, response, /* isSSL */ false);
+
+// OPTIONAL: handle a request coming from a websocket upgrade
+server.onUpgrade(request, socket, head, /* isSSL */ false);
 ```
 
 ## Example

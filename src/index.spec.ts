@@ -96,7 +96,7 @@ describe('ProxyServer', () => {
     const { req, res, promise } = createRequest('GET', new URL('http://example.com/notFound'));
 
     await server.start();
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
 
     await promise;
 
@@ -138,7 +138,7 @@ describe('ProxyServer', () => {
       authorization: 'dGVzdDp0ZXN0',
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
     await promise;
 
     expect(res.writeHead).toHaveBeenCalledWith(401);
@@ -159,7 +159,7 @@ describe('ProxyServer', () => {
       authorization: 'dGVzdDp0ZXN0',
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
     await promise;
 
     expect(res.headers['WWW-Authenticate']).not.toBeDefined();
@@ -178,7 +178,7 @@ describe('ProxyServer', () => {
       redirectToHttps: false,
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
 
     events.data('OK');
     events.end();
@@ -206,7 +206,7 @@ describe('ProxyServer', () => {
       redirectToHttps: true,
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
 
     await promise;
 
@@ -228,7 +228,7 @@ describe('ProxyServer', () => {
       redirectToDomain: 'redirect.com',
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
 
     events.data('OK');
     events.end();
@@ -253,7 +253,7 @@ describe('ProxyServer', () => {
       redirectToUrl: 'http://another.example.com/foo',
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
 
     events.data('OK');
     events.end();
@@ -281,7 +281,7 @@ describe('ProxyServer', () => {
       cors: true,
     });
 
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
     await promise;
 
     expect(res.writeHead).toHaveBeenCalledWith(204, { 'Content-Length': '0' });
@@ -297,7 +297,7 @@ describe('ProxyServer', () => {
     const { req, res, promise } = createRequest('GET', new URL('http://example.com/test'));
 
     await server.start();
-    server.handleRequest(req, res, false);
+    server.onRequest(req, res, false);
     await promise;
 
     expect(fallback).toHaveBeenCalledWith(req, res);
