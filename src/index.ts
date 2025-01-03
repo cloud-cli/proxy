@@ -126,11 +126,6 @@ export class ProxyServer extends EventEmitter {
   onRequest(_req: IncomingMessage, res: ServerResponse, isSsl: boolean) {
     const req = this.matchProxy(_req);
     const { proxyEntry } = req;
-
-    if (!proxyEntry) {
-      return;
-    }
-
     const proxyRequest = this.createRequest(req, res, isSsl);
 
     if (!proxyRequest) {
@@ -157,7 +152,8 @@ export class ProxyServer extends EventEmitter {
   }
 
   onUpgrade(_req: IncomingMessage, socket: Socket, head: any, isSsl: boolean) {
-    const notValid = _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
+    const notValid =
+      _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
     const req = this.matchProxy(_req);
 
     if (notValid || !req.proxyEntry) {
@@ -214,7 +210,7 @@ export class ProxyServer extends EventEmitter {
 
             return head;
           },
-          ['HTTP/1.1 101 Switching Protocols']
+          ['HTTP/1.1 101 Switching Protocols'],
         )
         .join('\r\n') + '\r\n\r\n'
     );
@@ -242,7 +238,7 @@ export class ProxyServer extends EventEmitter {
           req.url,
           originHost,
           res.statusCode,
-          proxyEntry?.target || '(none)'
+          proxyEntry?.target || '(none)',
         );
       });
     }
@@ -253,8 +249,7 @@ export class ProxyServer extends EventEmitter {
         return;
       }
 
-      res.writeHead(404, 'Not found');
-      res.end();
+      this.notFound(res);
       return;
     }
 
@@ -389,7 +384,7 @@ export class ProxyServer extends EventEmitter {
       (p) =>
         p.domain === domainFromRequest ||
         (p.domain.startsWith('*.') &&
-          (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === domainFromRequest))
+          (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === domainFromRequest)),
     );
 
     if (byDomain.length === 1) {
@@ -482,6 +477,11 @@ export class ProxyServer extends EventEmitter {
       res.writeHead(500);
       res.end();
     }
+  }
+
+  protected notFound(res: ServerResponse) {
+    res.writeHead(404, 'Not found');
+    res.end();
   }
 }
 
