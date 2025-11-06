@@ -351,6 +351,10 @@ export class ProxyServer extends EventEmitter {
     const certs = (this.certs = {});
     const folder = this.settings.certificatesFolder;
 
+    if (!this.settings.httpsPort) {
+      return;
+    }
+
     if (this.settings.enableDebug) {
       console.log(`Loading certificates from ${folder}`);
     }

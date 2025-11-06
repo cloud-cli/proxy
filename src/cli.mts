@@ -18,8 +18,8 @@ import { ProxyServer, ProxySettings, ProxyEntry, loadConfig } from "./index.js";
       settings.httpsPort
     );
   } catch (error) {
-    console.error(error);
-    console.log("See https://github.com/cloud-cli/proxy/blob/main/README.md");
+    console.error(String(error));
+    console.log("See https://github.com/cloud-cli/proxy?tab=readme-ov-file#http-proxy");
     process.exit(1);
   }
 })();
