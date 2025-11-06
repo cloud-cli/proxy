@@ -315,14 +315,13 @@ export class ProxyServer extends EventEmitter {
 
     if (proxyEntry.preserveHost) {
       proxyRequest.setHeader('host', req.headers.host);
+      proxyRequest.setHeader('x-forwarded-for', req.headers.host);
+      proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
+      proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
     } else {
       const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
       proxyRequest.setHeader('host', host);
     }
-
-    proxyRequest.setHeader('x-forwarded-for', req.headers.host);
-    proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
-    proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
 
     return proxyRequest;
   }
