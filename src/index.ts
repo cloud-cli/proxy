@@ -36,10 +36,6 @@ export class ProxyEntry {
   }
 }
 
-interface ProxySettingsFromFile extends Partial<ProxySettings> {
-  proxies?: ProxyEntry[];
-}
-
 export type MinimalProxyEntry = Partial<ProxyEntry> & Pick<ProxyEntry, 'domain'>;
 
 export class ProxySettings {
@@ -52,6 +48,7 @@ export class ProxySettings {
   readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
   readonly fallback: (req: IncomingMessage, res: ServerResponse) => void;
+  readonly proxies?: ProxyEntry[];
 
   constructor(p: Partial<ProxySettings> = {}) {
     Object.assign(this, p);
@@ -100,6 +97,10 @@ export class ProxyServer extends EventEmitter {
     }
 
     this.createServers();
+
+    if (this.settings.proxies) {
+      for (const p of this.settings.proxies) this.add(p);
+    }
 
     return this;
   }
@@ -488,7 +489,7 @@ export class ProxyServer extends EventEmitter {
   }
 }
 
-export async function loadConfig(path?: string, optional = false): Promise<ProxySettingsFromFile> {
+export async function loadConfig(path?: string, optional = false): Promise<ProxySettings> {
   if (!path) {
     const candidates = [
       join(process.cwd(), 'proxy.config.mjs'),
