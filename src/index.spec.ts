@@ -193,8 +193,9 @@ describe('ProxyServer', () => {
     expect(res.writeHead).toHaveBeenCalledWith(200, 'OK');
     expect(res.end).toHaveBeenCalledWith();
 
-    expect(res.body).toContain('x-forwarded-for: example.com');
-    expect(res.body).toContain('x-forwarded-proto: http');
+    // When preserveHost is not enabled, the proxy should not invent forwarded headers.
+    // The upstream should receive the target host header.
+    expect(res.body).toContain(`host: localhost:${port}`);
     expect(res.body).toContain('GET /test');
 
     server.reset();

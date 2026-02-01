@@ -218,7 +218,10 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected matchProxy(req: IncomingMessage) {
-    const originHost = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
+    // IMPORTANT:
+    // - x-forwarded-for is a client IP chain, NOT a host.
+    // - routing should use x-forwarded-host (if present) or host.
+    const originHost = [req.headers['x-forwarded-host'], req.headers.host].filter(Boolean)[0];
     const originlUrl = originHost ? new URL('http://' + originHost) : null;
     const proxyEntry = originlUrl ? this.findProxyEntry(originlUrl.hostname, req.url) : null;
 
@@ -315,10 +318,42 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxyEntry.preserveHost) {
-      proxyRequest.setHeader('host', req.headers.host);
-      proxyRequest.setHeader('x-forwarded-for', req.headers.host);
-      proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
-      proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
+      // Preserve the original Host for virtual-hosted upstreams, but keep forwarded headers
+      // standards-compliant. (Never put a domain into X-Forwarded-For.)
+      const incomingHost = req.headers.host;
+      if (incomingHost) {
+        proxyRequest.setHeader('host', incomingHost);
+        proxyRequest.setHeader('x-forwarded-host', incomingHost);
+      }
+
+      const proto = isSsl ? 'https' : 'http';
+      proxyRequest.setHeader('x-forwarded-proto', proto);
+
+      const remoteAddress = req.socket?.remoteAddress;
+      const prior = req.headers['x-forwarded-for'];
+      const priorValue = Array.isArray(prior) ? prior.join(', ') : prior;
+      const xff = remoteAddress
+        ? priorValue
+          ? `${priorValue}, ${remoteAddress}`
+          : remoteAddress
+        : priorValue;
+
+      if (xff) {
+        proxyRequest.setHeader('x-forwarded-for', xff);
+      }
+
+      // RFC 7239 Forwarded
+      // - for=<client-ip>
+      // - proto=http|https
+      // - host=<host>
+      const forwardedParts: string[] = [];
+      if (remoteAddress) {
+        const needsQuotes = remoteAddress.includes(':');
+        forwardedParts.push(`for=${needsQuotes ? `"${remoteAddress}"` : remoteAddress}`);
+      }
+      if (incomingHost) forwardedParts.push(`host=${incomingHost}`);
+      forwardedParts.push(`proto=${proto}`);
+      proxyRequest.setHeader('forwarded', forwardedParts.join(';'));
     } else {
       const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
       proxyRequest.setHeader('host', host);
