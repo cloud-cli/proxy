@@ -218,7 +218,7 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected matchProxy(req: IncomingMessage) {
-    const originHost = [req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
+    const originHost = [req.headers['x-forwarded-host'], req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
     const originlUrl = originHost ? new URL('http://' + originHost) : null;
     const proxyEntry = originlUrl ? this.findProxyEntry(originlUrl.hostname, req.url) : null;
 
@@ -315,10 +315,12 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxyEntry.preserveHost) {
-      proxyRequest.setHeader('host', req.headers.host);
-      proxyRequest.setHeader('x-forwarded-for', req.headers.host);
+      const hostHeader = req.headers.host || '';
+      proxyRequest.setHeader('host', hostHeader);
+      proxyRequest.setHeader('x-forwarded-for', hostHeader);
+      proxyRequest.setHeader('x-forwarded-host', hostHeader);
       proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
-      proxyRequest.setHeader('forwarded', 'host=' + req.headers.host + ';proto=' + (isSsl ? 'https' : 'http'));
+      proxyRequest.setHeader('forwarded', 'host=' + hostHeader + ';proto=' + (isSsl ? 'https' : 'http'));
     } else {
       const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
       proxyRequest.setHeader('host', host);
