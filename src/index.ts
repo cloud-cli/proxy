@@ -317,7 +317,6 @@ export class ProxyServer extends EventEmitter {
     if (proxyEntry.preserveHost) {
       const hostHeader = req.headers.host || '';
       proxyRequest.setHeader('host', hostHeader);
-      proxyRequest.setHeader('x-forwarded-for', hostHeader);
       proxyRequest.setHeader('x-forwarded-host', hostHeader);
       proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
       proxyRequest.setHeader('forwarded', 'host=' + hostHeader + ';proto=' + (isSsl ? 'https' : 'http'));
@@ -325,6 +324,8 @@ export class ProxyServer extends EventEmitter {
       const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
       proxyRequest.setHeader('host', host);
     }
+
+    proxyRequest.setHeader('x-forwarded-for', req.socket.remoteAddress || '');
 
     return proxyRequest;
   }
