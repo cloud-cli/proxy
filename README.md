@@ -1,6 +1,6 @@
 # @cloud-cli/proxy
 
-HTTP(S) Proxy server
+HTTP(S) Proxy server in Node.JS
 
 ## Settings
 
@@ -64,6 +64,8 @@ Adds headers to the proxy request transparently, so API calls can be proxied wit
 Use key/value pairs separated by a bar. Spaces around are ignored.
 
 Example `authentication: bearer abc123 | x-custom-header: 123`
+
+> Note: the server always replaces `x-forwarded-for` with the IP from the original request, and is not possible to override this via headers or options.
 
 **authorization:**
 
