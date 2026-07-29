@@ -58,7 +58,7 @@ export class ProxySettings {
 export type ProxyIncomingMessage = IncomingMessage & {
   originHost: string;
   originlUrl: URL | null;
-  proxyEntry: ProxyEntry;
+  proxyEntry: ProxyEntry | null;
 };
 
 export class ProxyServer extends EventEmitter {
@@ -125,44 +125,59 @@ export class ProxyServer extends EventEmitter {
   }
 
   onRequest(_req: IncomingMessage, res: ServerResponse, isSsl: boolean) {
-    const req = this.matchProxy(_req);
-    const { proxyEntry } = req;
-    const proxyRequest = this.createRequest(req, res, isSsl);
+    try {
+      const req = this.matchProxy(_req);
+      const proxyRequest = this.createRequest(req, res, isSsl);
 
-    if (!proxyRequest) {
-      return;
-    }
-
-    req.on('data', (chunk) => proxyRequest.write(chunk));
-    req.on('end', () => proxyRequest.end());
-
-    proxyRequest.on('error', (error) => this.handleError(error, res));
-    proxyRequest.on('response', (proxyRes) => {
-      this.setHeaders(proxyRes, res);
-
-      const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
-      if (isCorsSimple) {
-        this.setCorsHeaders(req, res);
+      if (!proxyRequest) {
+        return;
       }
 
-      res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
+      const { proxyEntry } = req;
+      req.on('data', (chunk) => proxyRequest.write(chunk));
+      req.on('end', () => proxyRequest.end());
 
-      proxyRes.on('data', (chunk) => res.write(chunk));
-      proxyRes.on('end', () => res.end());
-    });
+      proxyRequest.on('error', (error) => this.handleError(error, res));
+      proxyRequest.on('response', (proxyRes) => {
+        this.setHeaders(proxyRes, res);
+
+        const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
+        if (isCorsSimple) {
+          this.setCorsHeaders(req, res);
+        }
+
+        res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
+
+        proxyRes.on('data', (chunk) => res.write(chunk));
+        proxyRes.on('end', () => res.end());
+      });
+    } catch (e) {
+      this.handleError(e, res);
+    }
   }
 
   onUpgrade(_req: IncomingMessage, socket: Socket, head: any, isSsl: boolean) {
     const notValid =
       _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
+
+    if (notValid) {
+      socket.destroy();
+      return;
+    }
+
     const req = this.matchProxy(_req);
 
-    if (notValid || !req.proxyEntry) {
+    if (!req.proxyEntry) {
       socket.destroy();
       return;
     }
 
     const proxyReq = this.createRequest(req, socket as any, isSsl);
+
+    if (!proxyReq) {
+      socket.destroy();
+      return;
+    }
 
     socket.setTimeout(0);
     socket.setNoDelay(true);
@@ -218,17 +233,22 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected matchProxy(req: IncomingMessage) {
-    const originHost = [req.headers['x-forwarded-host'], req.headers['x-forwarded-for'], req.headers.host].filter(Boolean)[0];
-    const originlUrl = originHost ? new URL('http://' + originHost) : null;
-    const proxyEntry = originlUrl ? this.findProxyEntry(originlUrl.hostname, req.url) : null;
+    const h = req.headers;
+    const originHost = [h['x-forwarded-host'], h['x-forwarded-for'], h.host].filter(Boolean)[0] || '';
 
-    Object.assign(req, { originHost, originlUrl, proxyEntry });
+    if (originHost) {
+      try {
+        const url = new URL(req.url, 'http://' + originHost);
+        const proxyEntry = this.findProxyEntry(url);
+        Object.assign(req, { originHost, originlUrl: url, proxyEntry });
+      } catch {}
+    }
 
     return req as ProxyIncomingMessage;
   }
 
   protected createRequest(req: ProxyIncomingMessage, res: ServerResponse, isSsl: boolean) {
-    const { originHost, originlUrl, proxyEntry } = req;
+    const { originHost = 'none', originlUrl = '', proxyEntry = null } = req;
 
     if (this.settings.enableDebug) {
       res.on('finish', () => {
@@ -255,7 +275,7 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxyEntry.authorization) {
-      const incomingHeader = (req.headers.authorization || '').replace('Basic', '').trim();
+      const incomingHeader = (req.headers.authorization || '').replace(/^basic/i, '').trim();
 
       if (incomingHeader !== proxyEntry.authorization) {
         res.setHeader('WWW-Authenticate', 'Basic realm="Y u no password"');
@@ -382,16 +402,15 @@ export class ProxyServer extends EventEmitter {
     });
   }
 
-  protected findProxyEntry(domainFromRequest: string, incomingUrl: string) {
-    const requestPath = new URL(incomingUrl, 'http://localhost').pathname;
-    const requestParentDomain = domainFromRequest.split('.').slice(1).join('.');
+  protected findProxyEntry(url: URL) {
+    const { hostname, pathname } = url;
+    const requestParentDomain = hostname.split('.').slice(1).join('.');
 
     // test example.com (exact match) or *.example.com for <anything>.example.com
     const byDomain = this.proxies.filter(
       (p) =>
-        p.domain === domainFromRequest ||
-        (p.domain.startsWith('*.') &&
-          (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === domainFromRequest)),
+        p.domain === hostname ||
+        (p.domain.startsWith('*.') && (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === hostname)),
     );
 
     if (byDomain.length === 1) {
@@ -406,7 +425,7 @@ export class ProxyServer extends EventEmitter {
     // example.com          => [target]
 
     return (
-      byDomain.find((p) => p.path && (requestPath === p.path || requestPath.startsWith(p.path + '/'))) ||
+      byDomain.find((p) => p.path && (pathname === p.path || pathname.startsWith(p.path + '/'))) ||
       byDomain.find((p) => !p.path) ||
       null
     );
@@ -473,6 +492,14 @@ export class ProxyServer extends EventEmitter {
     }
 
     this.emit('proxyerror', error);
+
+    if (res.headersSent) {
+      if (res.writable) {
+        res.end();
+      }
+
+      return;
+    }
 
     if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
       res.writeHead(502);

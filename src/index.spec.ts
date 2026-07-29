@@ -193,7 +193,7 @@ describe('ProxyServer', () => {
     expect(res.writeHead).toHaveBeenCalledWith(200, 'OK');
     expect(res.end).toHaveBeenCalledWith();
 
-    expect(res.body).toContain('x-forwarded-for: example.com');
+    expect(res.body).toContain('x-forwarded-host: example.com');
     expect(res.body).toContain('x-forwarded-proto: http');
     expect(res.body).toContain('GET /test');
 
