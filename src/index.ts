@@ -418,11 +418,10 @@ export class ProxyServer extends EventEmitter {
     }
 
     // with path /api
-    // example.com/api      => [target]
-    // example.com/api/foo  => [target]/foo
-
+    //    example.com/api      => [target]
+    //    example.com/api/foo  => [target]/foo
     // without path
-    // example.com          => [target]
+    //    example.com          => [target]
 
     return (
       byDomain.find((p) => p.path && (pathname === p.path || pathname.startsWith(p.path + '/'))) ||
