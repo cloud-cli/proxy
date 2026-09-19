@@ -561,16 +561,15 @@ export class ProxyServer extends EventEmitter {
       }
     }
 
-    if (proxy.path !== undefined && proxy.path && !proxy.path.startsWith('/')) {
+    if (proxy.path && !proxy.path.startsWith('/')) {
       throw new Error('Proxy path must start with /');
     }
 
-    if (proxy.headers !== undefined) {
+    if (proxy.headers) {
       for (const header of proxy.headers.split('|')) {
-        if (!header.trim()) continue;0
         const separator = header.indexOf(':');
         if (separator <= 0 || !header.slice(separator + 1).trim()) {
-          throw new Error(`Invalid proxy header: ${header}`);
+          throw new Error(`Invalid proxy header: "${header}"`);
         }
       }
     }
