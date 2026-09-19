@@ -561,7 +561,7 @@ export class ProxyServer extends EventEmitter {
       }
     }
 
-    if (proxy.path !== undefined && !proxy.path.startsWith('/')) {
+    if (proxy.path !== undefined && proxy.path && !proxy.path.startsWith('/')) {
       throw new Error('Proxy path must start with /');
     }
 
