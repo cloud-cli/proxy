@@ -120,6 +120,31 @@ describe('ProxyServer', () => {
     server.reset();
   });
 
+  it('should only route managed host candidates', async () => {
+    const first = setup();
+    const rejected = first.createRequest('GET', new URL('http://unmanaged.example/test'), {
+      'x-forwarded-for': 'example.com',
+    });
+    await first.server.start();
+    first.server.add({ domain: 'example.com', target: serverTarget });
+    first.server.onRequest(rejected.req, rejected.res, false);
+    await rejected.promise;
+    expect(rejected.res.writeHead).toHaveBeenCalledWith(404, 'Not found');
+    first.server.reset();
+
+    const second = setup();
+    const forwarded = second.createRequest('GET', new URL('http://unmanaged.example/test'), {
+      forwarded: 'for=192.0.2.1;host=example.com',
+    });
+    await second.server.start();
+    second.server.add({ domain: 'example.com', target: serverTarget });
+    second.server.onRequest(forwarded.req, forwarded.res, false);
+    forwarded.req.emit('end');
+    await forwarded.promise;
+    expect(forwarded.res.writeHead).toHaveBeenCalledWith(200, 'OK');
+    second.server.reset();
+  });
+
   it('should reject a proxy loop before opening another upstream request', async () => {
     const { server, createRequest } = setup();
     const { req, res, promise } = createRequest('GET', new URL('http://example.com/loop'), {

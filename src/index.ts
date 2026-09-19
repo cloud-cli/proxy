@@ -338,18 +338,57 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected matchProxy(req: IncomingMessage) {
-    const h = req.headers;
-    const originHost = [h['x-forwarded-host'], h['x-forwarded-for'], h.host].filter(Boolean)[0] || '';
+    const candidates = this.getHostCandidates(req.headers);
 
-    if (originHost) {
+    for (const candidate of candidates) {
       try {
-        const url = new URL(req.url || '/', 'http://' + originHost);
+        const url = new URL(req.url || '/', 'http://' + candidate);
+        if (!this.isManagedDomain(url.hostname)) continue;
+
         const proxyEntry = this.findProxyEntry(url);
-        Object.assign(req, { originHost, originlUrl: url, proxyEntry });
+        Object.assign(req, { originHost: candidate, originlUrl: url, proxyEntry });
+        return req as ProxyIncomingMessage;
       } catch {}
     }
 
+    Object.assign(req, { originHost: '', originlUrl: null, proxyEntry: null });
+
     return req as ProxyIncomingMessage;
+  }
+
+  protected getHostCandidates(headers: IncomingHttpHeaders) {
+    const candidates: string[] = [];
+    const add = (value: string | string[] | undefined) => {
+      const values = Array.isArray(value) ? value : value ? [value] : [];
+      for (const item of values) {
+        for (const candidate of item.split(',')) {
+          const host = candidate.trim().replace(/^"|"$/g, '');
+          if (host) candidates.push(host);
+        }
+      }
+    };
+
+    add(headers['x-forwarded-host']);
+    add(headers.host);
+
+    const forwarded = headers.forwarded;
+    const forwardedValues = Array.isArray(forwarded) ? forwarded : forwarded ? [forwarded] : [];
+    for (const value of forwardedValues) {
+      for (const parameter of value.split(',')) {
+        const match = parameter.match(/(?:^|;)\s*host=([^;]+)/i);
+        if (match) add(match[1]);
+      }
+    }
+
+    return candidates;
+  }
+
+  protected isManagedDomain(hostname: string) {
+    return this.proxies.some((proxy) => {
+      const domain = proxy.domain.toLowerCase();
+      const host = hostname.toLowerCase();
+      return domain === host || (domain.startsWith('*.') && host.endsWith(`.${domain.slice(2)}`));
+    });
   }
 
   protected createRequest(req: ProxyIncomingMessage, res: ServerResponse, isSsl: boolean) {
