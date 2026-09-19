@@ -567,6 +567,7 @@ export class ProxyServer extends EventEmitter {
 
     if (proxy.headers !== undefined) {
       for (const header of proxy.headers.split('|')) {
+        if (!header.trim()) continue;0
         const separator = header.indexOf(':');
         if (separator <= 0 || !header.slice(separator + 1).trim()) {
           throw new Error(`Invalid proxy header: ${header}`);
