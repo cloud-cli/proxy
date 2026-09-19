@@ -45,6 +45,8 @@ export class ProxySettings {
   readonly httpPort: number = Number(process.env.HTTP_PORT) || 80;
   readonly httpsPort: number = Number(process.env.HTTPS_PORT) || 443;
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
+  readonly requestTimeout = 30_000;
+  readonly maxProxyHops = 1;
   readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
   readonly fallback: (req: IncomingMessage, res: ServerResponse) => void;
@@ -93,7 +95,9 @@ export class ProxyServer extends EventEmitter {
     await this.reload();
 
     if (this.settings.autoReload) {
-      this.autoReload = setInterval(() => this.reload(), this.settings.autoReload);
+      this.autoReload = setInterval(() => {
+        this.reload().catch((error) => this.handleReloadError(error));
+      }, this.settings.autoReload);
     }
 
     this.createServers();
@@ -125,87 +129,112 @@ export class ProxyServer extends EventEmitter {
   }
 
   onRequest(_req: IncomingMessage, res: ServerResponse, isSsl: boolean) {
+    _req.on('error', (error) => this.handleError(error, res));
+    res.on('error', (error) => this.handleServerError(error));
+
     try {
       const req = this.matchProxy(_req);
       const proxyRequest = this.createRequest(req, res, isSsl);
 
-      if (!proxyRequest) {
-        return;
-      }
-
+      if (!proxyRequest) return;
       const { proxyEntry } = req;
-      req.on('data', (chunk) => proxyRequest.write(chunk));
-      req.on('end', () => proxyRequest.end());
+      if (!proxyEntry) return;
+
+      req.on('error', (error) => proxyRequest.destroy(error));
+      req.on('aborted', () => proxyRequest.destroy());
+      req.on('data', (chunk) => {
+        try {
+          proxyRequest.write(chunk);
+        } catch (error) {
+          this.handleError(error, res);
+        }
+      });
+      req.on('end', () => {
+        try {
+          proxyRequest.end();
+        } catch (error) {
+          this.handleError(error, res);
+        }
+      });
 
       proxyRequest.on('error', (error) => this.handleError(error, res));
       proxyRequest.on('response', (proxyRes) => {
-        this.setHeaders(proxyRes, res);
+        try {
+          proxyRes.on('error', (error) => this.handleError(error, res));
+          this.setHeaders(proxyRes, res);
 
-        const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
-        if (isCorsSimple) {
-          this.setCorsHeaders(req, res);
+          const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
+          if (isCorsSimple) this.setCorsHeaders(req, res);
+
+          res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
+          proxyRes.on('data', (chunk) => {
+            try {
+              res.write(chunk);
+            } catch (error) {
+              this.handleError(error, res);
+            }
+          });
+          proxyRes.on('end', () => {
+            try {
+              res.end();
+            } catch (error) {
+              this.handleError(error, res);
+            }
+          });
+        } catch (error) {
+          this.handleError(error, res);
         }
-
-        res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
-
-        proxyRes.on('data', (chunk) => res.write(chunk));
-        proxyRes.on('end', () => res.end());
       });
-    } catch (e) {
-      this.handleError(e, res);
+    } catch (error) {
+      this.handleError(error, res);
     }
   }
 
   onUpgrade(_req: IncomingMessage, socket: Socket, head: any, isSsl: boolean) {
-    const notValid =
-      _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
-
-    if (notValid) {
+    _req.on('error', (error) => {
       socket.destroy();
-      return;
-    }
-
-    const req = this.matchProxy(_req);
-
-    if (!req.proxyEntry) {
-      socket.destroy();
-      return;
-    }
-
-    const proxyReq = this.createRequest(req, socket as any, isSsl);
-
-    if (!proxyReq) {
-      socket.destroy();
-      return;
-    }
-
-    socket.setTimeout(0);
-    socket.setNoDelay(true);
-    socket.setKeepAlive(true, 0);
-
-    if (head && head.length) {
-      socket.unshift(head);
-    }
-
-    proxyReq.on('error', (error) => this.emit('proxyerror', error));
-    proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
-      proxySocket.on('error', (error) => this.emit('proxyerror', error));
-
-      socket.on('error', (error) => {
-        this.emit('proxyerror', error);
-        proxySocket.end();
-      });
-
-      if (proxyHead && proxyHead.length) {
-        proxySocket.unshift(proxyHead);
-      }
-
-      socket.write(this.createWebSocketResponseHeaders(proxyRes.headers));
-
-      proxySocket.pipe(socket).pipe(proxySocket);
+      this.handleServerError(error);
     });
 
-    return proxyReq.end();
+    try {
+      const notValid =
+        _req.method !== 'GET' || !_req.headers.upgrade || _req.headers.upgrade.toLowerCase() !== 'websocket';
+      const req = this.matchProxy(_req);
+
+      if (notValid || !req.proxyEntry) {
+        socket.destroy();
+        return;
+      }
+
+      const proxyReq = this.createRequest(req, socket as any, isSsl);
+      if (!proxyReq) {
+        socket.destroy();
+        return;
+      }
+
+      socket.on('error', (error) => this.emit('proxyerror', error));
+      socket.setTimeout(0);
+      socket.setNoDelay(true);
+      socket.setKeepAlive(true, 0);
+
+      if (head && head.length) socket.unshift(head);
+
+      proxyReq.on('error', (error) => this.emit('proxyerror', error));
+      proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
+        proxyReq.setTimeout(0);
+        proxySocket.on('error', (error) => this.emit('proxyerror', error));
+        socket.on('error', () => proxySocket.end());
+
+        if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
+        socket.write(this.createWebSocketResponseHeaders(proxyRes.headers));
+        proxySocket.pipe(socket).pipe(proxySocket);
+      });
+
+      return proxyReq.end();
+    } catch (error) {
+      socket.destroy();
+      this.handleServerError(error);
+    }
   }
 
   protected createWebSocketResponseHeaders(headers: IncomingHttpHeaders) {
@@ -271,6 +300,14 @@ export class ProxyServer extends EventEmitter {
       }
 
       this.notFound(res);
+      return;
+    }
+
+    const rawHops = req.headers['x-px-hop'];
+    const hops = Number(Array.isArray(rawHops) ? rawHops[0] : rawHops || 0);
+    if (!Number.isInteger(hops) || hops < 0 || hops >= this.settings.maxProxyHops) {
+      res.writeHead(508, 'Loop Detected');
+      res.end();
       return;
     }
 
@@ -345,12 +382,17 @@ export class ProxyServer extends EventEmitter {
       proxyRequest.setHeader('host', host);
     }
 
-    proxyRequest.setHeader('x-forwarded-for', req.socket.remoteAddress || '');
+    proxyRequest.setHeader('x-forwarded-for', req.socket?.remoteAddress || '');
+    proxyRequest.setHeader('x-px-hop', String(hops + 1));
+    proxyRequest.setTimeout(this.settings.requestTimeout, () => {
+      proxyRequest.destroy(Object.assign(new Error('Upstream request timed out'), { code: 'ETIMEDOUT' }));
+    });
 
     return proxyRequest;
   }
 
   protected setupServer(server: any, isSsl: boolean) {
+    server.on('error', (error) => this.handleServerError(error));
     server.on('request', (req, res) => this.onRequest(req, res, isSsl));
     server.on('upgrade', (req, socket, head) => this.onUpgrade(req, socket, head, isSsl));
 
@@ -492,15 +534,20 @@ export class ProxyServer extends EventEmitter {
 
     this.emit('proxyerror', error);
 
-    if (res.headersSent) {
-      if (res.writable) {
-        res.end();
-      }
+    if (res.writableEnded || res.destroyed) return;
 
+    if (res.headersSent) {
+      if (res.writable) res.end();
       return;
     }
 
-    if (error.code === 'ECONNREFUSED' || error.code === 'ECONNRESET') {
+    if (error?.code === 'ETIMEDOUT') {
+      res.writeHead(504);
+      res.end();
+      return;
+    }
+
+    if (error?.code === 'ECONNREFUSED' || error?.code === 'ECONNRESET') {
       res.writeHead(502);
       res.end();
       return;
@@ -510,6 +557,15 @@ export class ProxyServer extends EventEmitter {
       res.writeHead(500);
       res.end();
     }
+  }
+
+  protected handleServerError(error: unknown) {
+    if (this.settings.enableDebug) console.error(error);
+    this.emit('proxyerror', error);
+  }
+
+  protected handleReloadError(error: unknown) {
+    this.handleServerError(error);
   }
 
   protected notFound(res: ServerResponse) {

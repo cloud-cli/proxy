@@ -1,6 +1,6 @@
 {
   "name": "@cloud-cli/proxy",
-  "version": "0.0.0",
+  "version": "1.11.4",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "type": "module",

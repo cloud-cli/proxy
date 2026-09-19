@@ -15,7 +15,7 @@ beforeAll(() => {
     res.end('\n\n' + req.method + ' ' + req.url);
   }).listen(port);
 
-  console.log('Target server listening on ' + serverTarget);
+  if (process.env.DEBUG) console.log('Target server listening on ' + serverTarget);
 });
 
 afterAll(() => {
@@ -109,6 +109,48 @@ describe('ProxyServer', () => {
     server.reset();
   });
 
+  it('should reject a proxy loop before opening another upstream request', async () => {
+    const { server, createRequest } = setup();
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/loop'), {
+      'x-px-hop': '1',
+    });
+
+    await server.start();
+    server.add({ domain: 'example.com', target: serverTarget });
+    server.onRequest(req, res, false);
+
+    await promise;
+
+    expect(res.writeHead).toHaveBeenCalledWith(508, 'Loop Detected');
+    expect(res.end).toHaveBeenCalledWith();
+    server.reset();
+  });
+
+  it('should return 504 when an upstream request times out', async () => {
+    const hangingTarget = createServer();
+    await new Promise<void>((resolve, reject) => {
+      hangingTarget.once('error', reject);
+      hangingTarget.listen(0, resolve);
+    });
+
+    const port = (hangingTarget.address() as any).port;
+    const { server, createRequest } = setup({ requestTimeout: 10 });
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/timeout'));
+    server.removeAllListeners('proxyerror');
+
+    await server.start();
+    server.add({ domain: 'example.com', target: `http://127.0.0.1:${port}` });
+    server.onRequest(req, res, false);
+    req.emit('end');
+
+    await promise;
+
+    expect(res.writeHead).toHaveBeenCalledWith(504);
+    expect(res.end).toHaveBeenCalledWith();
+    server.reset();
+    hangingTarget.close();
+  });
+
   it('should add extra headers to request', async () => {
     const { server } = setup();
 
@@ -181,6 +223,7 @@ describe('ProxyServer', () => {
       domain: 'example.com',
       target: serverTarget,
       redirectToHttps: false,
+      preserveHost: true,
     });
 
     server.onRequest(req, res, false);
