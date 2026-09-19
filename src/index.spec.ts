@@ -33,6 +33,18 @@ describe('ProxySettings', () => {
     expect(settings.httpPort).toBe(80);
     expect(settings.httpsPort).toBe(443);
   });
+
+  it('uses false to disable a listener and zero for an ephemeral port', async () => {
+    const server = new ProxyServer(
+      new ProxySettings({ httpPort: 0, httpsPort: false, autoReload: 0 }),
+    );
+
+    await server.start();
+
+    expect((server as any).servers).toHaveLength(1);
+    expect((server as any).servers[0].address().port).toBeGreaterThan(0);
+    server.reset();
+  });
 });
 
 describe('ProxyServer', () => {
@@ -42,13 +54,12 @@ describe('ProxyServer', () => {
   }
 
   function setup(moreSettings = {}) {
-    const getPort = () => Math.floor(2000 + Math.random() * 5000);
     const settings = new ProxySettings({
       certificatesFolder: process.cwd() + '/certs',
       certificateFile: 'cert.crt',
       keyFile: 'key.crt',
-      httpPort: getPort(),
-      httpsPort: getPort(),
+      httpPort: 0,
+      httpsPort: false,
       autoReload: 0,
       ...moreSettings,
     });
@@ -336,6 +347,22 @@ describe('ProxyServer', () => {
     expect(res.end).toHaveBeenCalledWith();
     expect(res.body).toBe('');
 
+    server.reset();
+  });
+
+  it('should reject CORS origins outside managed domains', async () => {
+    const { server, createRequest } = setup();
+    const { req, res, promise } = createRequest('OPTIONS', new URL('http://example.com/cors'), {
+      origin: 'https://attacker.example.net',
+    });
+
+    await server.start();
+    server.add({ domain: 'example.com', target: serverTarget, cors: true });
+    server.onRequest(req, res, false);
+    await promise;
+
+    expect(res.writeHead).toHaveBeenCalledWith(403, 'CORS origin not allowed');
+    expect(res.end).toHaveBeenCalledWith();
     server.reset();
   });
 

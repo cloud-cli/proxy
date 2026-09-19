@@ -19,6 +19,24 @@ import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { Socket } from 'node:net';
 
+const HOP_BY_HOP_HEADERS = new Set([
+  'connection',
+  'keep-alive',
+  'proxy-authenticate',
+  'proxy-authorization',
+  'te',
+  'trailer',
+  'transfer-encoding',
+  'upgrade',
+]);
+
+function envPort(name: string, fallback: number): number | false {
+  const value = process.env[name];
+  if (value === undefined) return fallback;
+  if (value.toLowerCase() === 'false') return false;
+  return Number(value);
+}
+
 export class ProxyEntry {
   readonly domain: string;
   readonly target: string | URL;
@@ -42,8 +60,8 @@ export class ProxySettings {
   readonly certificatesFolder: string = String(process.env.PROXY_CERTS_FOLDER || process.cwd());
   readonly certificateFile: string = 'fullchain.pem';
   readonly keyFile: string = 'privkey.pem';
-  readonly httpPort: number = Number(process.env.HTTP_PORT) || 80;
-  readonly httpsPort: number = Number(process.env.HTTPS_PORT) || 443;
+  readonly httpPort: number | false = envPort('HTTP_PORT', 80);
+  readonly httpsPort: number | false = envPort('HTTPS_PORT', 443);
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
   readonly requestTimeout = 30_000;
   readonly maxProxyHops = 1;
@@ -69,6 +87,9 @@ export class ProxyServer extends EventEmitter {
   protected servers: Array<ReturnType<typeof createHttpServer>> = [];
   protected settings: ProxySettings;
   protected autoReload: any;
+  protected started = false;
+  protected reloadPromise: Promise<this> | null = null;
+  protected closePromise: Promise<void> | null = null;
 
   constructor(settings: ProxySettings) {
     super();
@@ -78,21 +99,62 @@ export class ProxyServer extends EventEmitter {
 
   get ports() {
     const { httpPort, httpsPort } = this.settings;
-    return { httpPort, httpsPort };
+    const httpIndex = httpPort === false ? -1 : 0;
+    const httpsIndex = httpsPort === false ? -1 : httpIndex + 1;
+    const getPort = (configured: number | false, index: number) => {
+      if (configured === false) return false;
+      const address = this.servers[index]?.address();
+      return address && typeof address !== 'string' ? address.port : configured;
+    };
+
+    return { httpPort: getPort(httpPort, httpIndex), httpsPort: getPort(httpsPort, httpsIndex) };
   }
 
-  createServers() {
+  async createServers() {
+    if (this.servers.length) return this;
+
     const { httpPort, httpsPort } = this.settings;
     const ssl = this.getSslOptions();
+    const servers: Array<ReturnType<typeof createHttpServer>> = [];
 
-    this.servers = [
-      httpPort && this.setupServer(createHttpServer(), false).listen(httpPort),
-      httpsPort && this.setupServer(createHttpsServer(ssl), true).listen(httpsPort),
-    ].filter(Boolean);
+    try {
+      for (const [port, isSsl] of [[httpPort, false], [httpsPort, true]] as const) {
+        if (port === false) continue;
+
+        const server = this.setupServer(isSsl ? createHttpsServer(ssl) : createHttpServer(), isSsl);
+        await new Promise<void>((resolve, reject) => {
+          const onError = (error: Error) => reject(error);
+          server.once('error', onError);
+          server.listen({ port, host: this.settings.host }, () => {
+            server.removeListener('error', onError);
+            resolve();
+          });
+        });
+        servers.push(server);
+      }
+    } catch (error) {
+      await Promise.all(servers.map((server) => this.closeServer(server)));
+      throw error;
+    }
+
+    this.servers = servers;
+    return this;
   }
 
   async start() {
+    if (this.started) return this;
+
+    await this.closePromise;
+    this.closePromise = null;
+    this.validateSettings();
     await this.reload();
+
+    if (this.settings.proxies) {
+      for (const p of this.settings.proxies) this.add(p);
+    }
+
+    await this.createServers();
+    this.started = true;
 
     if (this.settings.autoReload) {
       this.autoReload = setInterval(() => {
@@ -100,30 +162,35 @@ export class ProxyServer extends EventEmitter {
       }, this.settings.autoReload);
     }
 
-    this.createServers();
-
-    if (this.settings.proxies) {
-      for (const p of this.settings.proxies) this.add(p);
-    }
-
     return this;
   }
 
   reset() {
-    this.servers.forEach((server: any) => server.close());
+    this.closePromise = Promise.all(this.servers.map((server) => this.closeServer(server))).then(() => undefined);
+    this.servers = [];
     this.proxies = [];
     this.certs = {};
+    this.started = false;
     clearInterval(this.autoReload);
+    this.autoReload = undefined;
 
     return this;
   }
 
   async reload() {
-    await this.loadCertificates();
-    return this;
+    if (this.reloadPromise) return this.reloadPromise;
+
+    this.reloadPromise = this.loadCertificates()
+      .then(() => this)
+      .finally(() => {
+        this.reloadPromise = null;
+      });
+
+    return this.reloadPromise;
   }
 
   add(proxy: MinimalProxyEntry) {
+    this.validateProxy(proxy);
     this.proxies.push(proxy);
     return this;
   }
@@ -164,7 +231,12 @@ export class ProxyServer extends EventEmitter {
           this.setHeaders(proxyRes, res);
 
           const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
-          if (isCorsSimple) this.setCorsHeaders(req, res);
+          if (isCorsSimple && !this.setCorsHeaders(req, res)) {
+            res.writeHead(403, 'CORS origin not allowed');
+            res.end();
+            proxyRes.resume();
+            return;
+          }
 
           res.writeHead(proxyRes.statusCode, proxyRes.statusMessage);
           proxyRes.on('data', (chunk) => {
@@ -220,6 +292,10 @@ export class ProxyServer extends EventEmitter {
       if (head && head.length) socket.unshift(head);
 
       proxyReq.on('error', (error) => this.emit('proxyerror', error));
+      proxyReq.on('response', (proxyRes) => {
+        proxyRes.resume();
+        socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
+      });
       proxyReq.on('upgrade', (proxyRes, proxySocket, proxyHead) => {
         proxyReq.setTimeout(0);
         proxySocket.on('error', (error) => this.emit('proxyerror', error));
@@ -267,7 +343,7 @@ export class ProxyServer extends EventEmitter {
 
     if (originHost) {
       try {
-        const url = new URL(req.url, 'http://' + originHost);
+        const url = new URL(req.url || '/', 'http://' + originHost);
         const proxyEntry = this.findProxyEntry(url);
         Object.assign(req, { originHost, originlUrl: url, proxyEntry });
       } catch {}
@@ -277,7 +353,7 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected createRequest(req: ProxyIncomingMessage, res: ServerResponse, isSsl: boolean) {
-    const { originHost = 'none', originlUrl = '', proxyEntry = null } = req;
+    const { originHost = 'none', originlUrl = null, proxyEntry = null } = req;
 
     if (this.settings.enableDebug) {
       res.on('finish', () => {
@@ -323,8 +399,10 @@ export class ProxyServer extends EventEmitter {
       }
     }
 
+    const requestPath = originlUrl.pathname + originlUrl.search;
+
     if (proxyEntry.redirectToDomain) {
-      const newURL = new URL(req.url, `https://${proxyEntry.redirectToDomain}`);
+      const newURL = new URL(requestPath, `https://${proxyEntry.redirectToDomain}`);
       res.setHeader('Location', String(newURL));
       res.writeHead(302, 'Moved somewhere else');
       res.end();
@@ -339,7 +417,7 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxyEntry.redirectToHttps && !isSsl) {
-      const newURL = new URL(req.url, `https://${originHost}`);
+      const newURL = new URL(requestPath, `https://${originHost}`);
       res.setHeader('Location', String(newURL));
       res.writeHead(301, 'HTTPS is better');
       res.end();
@@ -348,7 +426,11 @@ export class ProxyServer extends EventEmitter {
 
     const isCorsPreflight = Boolean(req.method === 'OPTIONS' && proxyEntry.cors && req.headers.origin);
     if (isCorsPreflight) {
-      this.setCorsHeaders(req, res);
+      if (!this.setCorsHeaders(req, res)) {
+        res.writeHead(403, 'CORS origin not allowed');
+        res.end();
+        return;
+      }
       res.writeHead(204, { 'Content-Length': '0' });
       res.end();
       return;
@@ -357,7 +439,7 @@ export class ProxyServer extends EventEmitter {
     const targetAddress = proxyEntry.target;
     // URL always starts with /, which defeats the purpose of a target with a path
     // removing the first slash allows for a relative path
-    const targetUrl = new URL(req.url.slice(1), targetAddress);
+    const targetUrl = new URL(requestPath.slice(1), targetAddress);
 
     if (proxyEntry.path) {
       targetUrl.pathname = targetUrl.pathname.replace(proxyEntry.path, '');
@@ -399,6 +481,61 @@ export class ProxyServer extends EventEmitter {
     return server;
   }
 
+  protected closeServer(server: ReturnType<typeof createHttpServer>) {
+    return new Promise<void>((resolve) => {
+      if (!server.listening) {
+        resolve();
+        return;
+      }
+      server.close(() => resolve());
+    });
+  }
+
+  protected validateSettings() {
+    for (const port of [this.settings.httpPort, this.settings.httpsPort]) {
+      if (port !== false && (!Number.isInteger(port) || port < 0 || port > 65535)) {
+        throw new Error(`Invalid port: ${String(port)}`);
+      }
+    }
+
+    if (!Number.isInteger(this.settings.requestTimeout) || this.settings.requestTimeout <= 0) {
+      throw new Error('requestTimeout must be a positive integer');
+    }
+    if (!Number.isInteger(this.settings.maxProxyHops) || this.settings.maxProxyHops < 1) {
+      throw new Error('maxProxyHops must be a positive integer');
+    }
+  }
+
+  protected validateProxy(proxy: MinimalProxyEntry) {
+    if (!proxy.domain || typeof proxy.domain !== 'string') {
+      throw new Error('Proxy domain is required');
+    }
+
+    if (proxy.target === undefined && !proxy.redirectToDomain && !proxy.redirectToUrl) {
+      throw new Error('Proxy target or redirect is required');
+    }
+
+    if (proxy.target !== undefined) {
+      const target = new URL(proxy.target);
+      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+        throw new Error(`Unsupported proxy target protocol: ${target.protocol}`);
+      }
+    }
+
+    if (proxy.path !== undefined && !proxy.path.startsWith('/')) {
+      throw new Error('Proxy path must start with /');
+    }
+
+    if (proxy.headers !== undefined) {
+      for (const header of proxy.headers.split('|')) {
+        const separator = header.indexOf(':');
+        if (separator <= 0 || !header.slice(separator + 1).trim()) {
+          throw new Error(`Invalid proxy header: ${header}`);
+        }
+      }
+    }
+  }
+
   protected async loadCertificate(folder: string) {
     const { certificatesFolder, certificateFile, keyFile } = this.settings;
 
@@ -413,10 +550,10 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected async loadCertificates() {
-    const certs = (this.certs = {});
+    const certs: Record<string, SecureContext> = {};
     const folder = this.settings.certificatesFolder;
 
-    if (!this.settings.httpsPort) {
+    if (this.settings.httpsPort === false) {
       return;
     }
 
@@ -435,6 +572,8 @@ export class ProxyServer extends EventEmitter {
     for (const rootDomain of folders) {
       certs[rootDomain] = await this.loadCertificate(rootDomain);
     }
+
+    this.certs = certs;
   }
 
   protected setExtraHeaders(req: ClientRequest, headersString: string) {
@@ -452,7 +591,9 @@ export class ProxyServer extends EventEmitter {
     const byDomain = this.proxies.filter(
       (p) =>
         p.domain === hostname ||
-        (p.domain.startsWith('*.') && (p.domain.slice(2) === requestParentDomain || p.domain.slice(2) === hostname)),
+        (p.domain.startsWith('*.') &&
+          p.domain.slice(2) === requestParentDomain &&
+          p.domain.slice(2) !== hostname),
     );
 
     if (byDomain.length === 1) {
@@ -508,15 +649,41 @@ export class ProxyServer extends EventEmitter {
 
   protected setHeaders(from: IncomingMessage, to: ServerResponse | ClientRequest) {
     const headers = Object.entries(from.headers);
+    const connectionHeaders = new Set(
+      typeof from.headers.connection === 'string'
+        ? from.headers.connection.split(',').map((header) => header.trim().toLowerCase())
+        : [],
+    );
 
     for (const header of headers) {
+      const name = header[0].toLowerCase();
+      if (HOP_BY_HOP_HEADERS.has(name) || connectionHeaders.has(name)) continue;
       to.setHeader(header[0], header[1]);
     }
   }
 
   protected setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
     const headers = req.headers;
-    const corsOrigin = new URL(req.headers.origin).origin;
+    const origin = req.headers.origin;
+    if (!origin) return false;
+
+    let corsOrigin: string;
+    let hostname: string;
+    try {
+      const url = new URL(origin);
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+      corsOrigin = url.origin;
+      hostname = url.hostname;
+    } catch {
+      return false;
+    }
+
+    const managedDomains = this.proxies.map((proxy) => proxy.domain.replace(/^\*\./, '').toLowerCase());
+    const allowed = managedDomains.some(
+      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
+    );
+    if (!allowed) return false;
+
     const allowedMethod = headers['access-control-request-method'] || 'GET,HEAD,PUT,PATCH,POST,DELETE';
     const allowedHeaders = headers['access-control-request-headers'] || '*';
 
@@ -525,6 +692,7 @@ export class ProxyServer extends EventEmitter {
     res.setHeader('Access-Control-Allow-Headers', allowedHeaders);
     res.setHeader('Access-Control-Allow-Methods', allowedMethod);
     res.setHeader('Access-Control-Allow-Credentials', 'true');
+    return true;
   }
 
   protected handleError(error: any, res: ServerResponse) {

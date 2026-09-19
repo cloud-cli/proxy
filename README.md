@@ -48,12 +48,13 @@ const settings = new ProxySettings({
 **httpPort/httpsPort:**
 
 Allow you to change the http ports. Defaults are `80` and `443`.
-Set to zero if you want to disable http or https connections.
+Set to `false` if you want to disable HTTP or HTTPS connections. Set to `0` to
+let the operating system assign an available ephemeral port.
 
 ```js
 const settings = new ProxySettings({
   httpPort: 3000,
-  httpsPort: 3443,
+  httpsPort: false,
 });
 ```
 
@@ -72,6 +73,11 @@ Example `authentication: bearer abc123 | x-custom-header: 123`
 Add this option to request user authentication on client/side via headers.
 This activates the HTTP Basic authentication. The value on this field should be `user:password` encoded as `base64`.
 
+**cors:**
+
+Enables CORS handling for the proxy entry. Origins are accepted only when their
+hostname matches a configured proxy domain or one of its subdomains.
+
 **fallback:**
 
 If you want to use the proxy instance as a middleware, add `fallback` as an option, with a function that can handle a request.
@@ -89,10 +95,10 @@ const settings = new ProxySettings({ ... });
 const server = new ProxyServer(settings);
 
 // create internal HTTP/HTTPS servers
-server.createServers();
+await server.createServers();
 
 // start HTTP/HTTPS servers
-server.start();
+await server.start();
 
 // add a proxy entry
 server.add(new ProxyEntry({...}));
@@ -154,8 +160,8 @@ server.add(
 | ------------------ | -------------------------------------------------- |
 | DEBUG              | Enable debug logging                               |
 | PROXY_CERTS_FOLDER | Path to a folder where SSL certificates are stored |
-| HTTP_PORT          | Number. Same as `ProxySettings#httpPort`           |
-| HTTPS_PORT         | Number. Same as `ProxySettings#httpsPort`          |
+| HTTP_PORT          | Number or `false`. Same as `ProxySettings#httpPort` |
+| HTTPS_PORT         | Number or `false`. Same as `ProxySettings#httpsPort` |
 
 ## http-proxy
 
