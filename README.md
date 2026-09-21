@@ -73,6 +73,18 @@ Example `authentication: bearer abc123 | x-custom-header: 123`
 Add this option to request user authentication on client/side via headers.
 This activates the HTTP Basic authentication. The value on this field should be `user:password` encoded as `base64`.
 
+**preserveHost/forwardClientIp:**
+
+By default, requests are opaque: the upstream receives its own `Host` and no
+original host or client-IP forwarding headers. Set `preserveHost` to `true` to
+forward the matched public host and forwarding metadata. Set `forwardClientIp`
+to `true` to opt in to `X-Forwarded-For` for opaque requests.
+
+**proxyLoopSecret:**
+
+Set the same secret on proxy instances when managed proxy-to-proxy forwarding is
+intended. It signs the internal hop metadata used to stop routing loops.
+
 **cors:**
 
 Enables CORS handling for the proxy entry. Origins are accepted only when their

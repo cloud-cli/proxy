@@ -18,6 +18,7 @@ import { join } from 'node:path';
 import { EventEmitter } from 'node:events';
 import { existsSync } from 'node:fs';
 import { Socket } from 'node:net';
+import { createHmac, randomBytes } from 'node:crypto';
 
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
@@ -29,6 +30,15 @@ const HOP_BY_HOP_HEADERS = new Set([
   'transfer-encoding',
   'upgrade',
 ]);
+const PROXY_ROUTING_HEADERS = [
+  'host',
+  'forwarded',
+  'x-forwarded-host',
+  'x-forwarded-proto',
+  'x-forwarded-for',
+  'x-px-hop',
+  'x-px-loop-signature',
+];
 
 function envPort(name: string, fallback: number): number | false {
   const value = process.env[name];
@@ -48,6 +58,7 @@ export class ProxyEntry {
   readonly path: string = '';
   readonly cors: boolean = false;
   readonly preserveHost: boolean = false;
+  readonly forwardClientIp: boolean = false;
 
   constructor(p: Partial<ProxyEntry>) {
     Object.assign(this, p);
@@ -65,6 +76,7 @@ export class ProxySettings {
   readonly autoReload: number = 1000 * 60 * 60 * 24; // 1 day
   readonly requestTimeout = 30_000;
   readonly maxProxyHops = 1;
+  readonly proxyLoopSecret = '';
   readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
   readonly fallback: (req: IncomingMessage, res: ServerResponse) => void;
@@ -90,10 +102,12 @@ export class ProxyServer extends EventEmitter {
   protected started = false;
   protected reloadPromise: Promise<this> | null = null;
   protected closePromise: Promise<void> | null = null;
+  protected readonly loopSecret: string;
 
   constructor(settings: ProxySettings) {
     super();
     this.settings = settings;
+    this.loopSecret = settings.proxyLoopSecret || randomBytes(32).toString('hex');
     this.reset();
   }
 
@@ -419,11 +433,23 @@ export class ProxyServer extends EventEmitter {
     }
 
     const rawHops = req.headers['x-px-hop'];
-    const hops = Number(Array.isArray(rawHops) ? rawHops[0] : rawHops || 0);
-    if (!Number.isInteger(hops) || hops < 0 || hops >= this.settings.maxProxyHops) {
-      res.writeHead(508, 'Loop Detected');
-      res.end();
-      return;
+    const rawSignature = req.headers['x-px-loop-signature'];
+    const hopHeader = Array.isArray(rawHops) ? rawHops[0] : rawHops;
+    const signatureHeader = Array.isArray(rawSignature) ? rawSignature[0] : rawSignature;
+    let hops = 0;
+    if (signatureHeader) {
+      const expected = createHmac('sha256', this.loopSecret).update(hopHeader || '').digest('hex');
+      if (signatureHeader !== expected) {
+        res.writeHead(508, 'Loop Detected');
+        res.end();
+        return;
+      }
+      hops = Number(hopHeader);
+      if (!Number.isInteger(hops) || hops < 0 || hops >= this.settings.maxProxyHops) {
+        res.writeHead(508, 'Loop Detected');
+        res.end();
+        return;
+      }
     }
 
     if (proxyEntry.authorization) {
@@ -478,13 +504,15 @@ export class ProxyServer extends EventEmitter {
     const targetAddress = proxyEntry.target;
     // URL always starts with /, which defeats the purpose of a target with a path
     // removing the first slash allows for a relative path
-    const targetUrl = new URL(requestPath.slice(1), targetAddress);
+    const targetPathname =
+      proxyEntry.path &&
+      (originlUrl.pathname === proxyEntry.path || originlUrl.pathname.startsWith(proxyEntry.path + '/'))
+        ? originlUrl.pathname.slice(proxyEntry.path.length) || '/'
+        : originlUrl.pathname;
+    const targetPath = targetPathname + originlUrl.search;
+    const targetUrl = new URL(targetPath.slice(1), targetAddress);
 
-    if (proxyEntry.path) {
-      targetUrl.pathname = targetUrl.pathname.replace(proxyEntry.path, '');
-    }
-
-    const requestOptions = { method: req.method };
+    const requestOptions = { method: req.method, agent: false };
     const proxyRequest = (targetUrl.protocol === 'https:' ? httpsRequest : httpRequest)(targetUrl, requestOptions);
     this.setHeaders(req, proxyRequest);
 
@@ -492,19 +520,31 @@ export class ProxyServer extends EventEmitter {
       this.setExtraHeaders(proxyRequest, proxyEntry.headers);
     }
 
+    for (const header of PROXY_ROUTING_HEADERS) proxyRequest.removeHeader(header);
+
     if (proxyEntry.preserveHost) {
-      const hostHeader = req.headers.host || '';
+      const hostHeader = originHost;
       proxyRequest.setHeader('host', hostHeader);
       proxyRequest.setHeader('x-forwarded-host', hostHeader);
       proxyRequest.setHeader('x-forwarded-proto', isSsl ? 'https' : 'http');
       proxyRequest.setHeader('forwarded', 'host=' + hostHeader + ';proto=' + (isSsl ? 'https' : 'http'));
+      proxyRequest.setHeader('x-forwarded-for', req.socket?.remoteAddress || '');
     } else {
       const host = targetUrl.hostname + (targetUrl.port ? ':' + targetUrl.port : '');
       proxyRequest.setHeader('host', host);
+      if (proxyEntry.forwardClientIp) {
+        proxyRequest.setHeader('x-forwarded-for', req.socket?.remoteAddress || '');
+      }
     }
 
-    proxyRequest.setHeader('x-forwarded-for', req.socket?.remoteAddress || '');
-    proxyRequest.setHeader('x-px-hop', String(hops + 1));
+    if (this.isManagedDomain(targetUrl.hostname)) {
+      const nextHops = String(hops + 1);
+      proxyRequest.setHeader('x-px-hop', nextHops);
+      proxyRequest.setHeader(
+        'x-px-loop-signature',
+        createHmac('sha256', this.loopSecret).update(nextHops).digest('hex'),
+      );
+    }
     proxyRequest.setTimeout(this.settings.requestTimeout, () => {
       proxyRequest.destroy(Object.assign(new Error('Upstream request timed out'), { code: 'ETIMEDOUT' }));
     });

@@ -59,3 +59,5 @@ This document tracks the security, resilience, and operational work required bef
 ## Current Increment
 
 The first implementation increment restricts request routing to configured managed domains and validates the host values used for matching. It accepts `Host`, `X-Forwarded-Host`, and RFC 7239 `Forwarded: host=` candidates, and never treats `X-Forwarded-For` as a routing host. Trusted-proxy forwarding policy is tracked separately because it requires an explicit deployment boundary and configuration model.
+
+The opaque proxy contract is implemented: `preserveHost: false` removes inherited routing and provenance headers and sends the target authority as `Host`; `preserveHost: true` explicitly sends the canonical matched host and forwarding metadata. `forwardClientIp` is an opt-in for opaque requests. Managed proxy-to-proxy hops use signed metadata from `proxyLoopSecret`; ordinary opaque origins receive no proxy routing metadata.

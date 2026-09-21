@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { ProxyServer, ProxySettings, loadConfig } from '.';
 import { IncomingMessage, ServerResponse, createServer } from 'node:http';
 import { EventEmitter } from 'node:stream';
+import { createHmac } from 'node:crypto';
 
 const port = 2000 + ~~(Math.random() * 1000);
 const serverTarget = 'http://localhost:' + port;
@@ -146,9 +147,11 @@ describe('ProxyServer', () => {
   });
 
   it('should reject a proxy loop before opening another upstream request', async () => {
-    const { server, createRequest } = setup();
+    const { server, createRequest } = setup({ proxyLoopSecret: 'test-secret' });
+    const signature = createHmac('sha256', 'test-secret').update('1').digest('hex');
     const { req, res, promise } = createRequest('GET', new URL('http://example.com/loop'), {
       'x-px-hop': '1',
+      'x-px-loop-signature': signature,
     });
 
     await server.start();
@@ -276,6 +279,30 @@ describe('ProxyServer', () => {
     expect(res.body).toContain('x-forwarded-proto: http');
     expect(res.body).toContain('GET /test');
 
+    server.reset();
+  });
+
+  it('should keep opaque requests detached from the original host', async () => {
+    const { server, createRequest } = setup();
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/test'), {
+      'x-forwarded-host': 'example.com',
+      'x-forwarded-proto': 'https',
+      'x-forwarded-for': '192.0.2.1',
+      forwarded: 'host=example.com;proto=https',
+      'x-px-hop': '99',
+    });
+
+    await server.start();
+    server.add({ domain: 'example.com', target: serverTarget });
+    server.onRequest(req, res, false);
+    req.emit('end');
+    await promise;
+
+    expect(res.body).toContain('host: localhost:' + port);
+    expect(res.body).not.toContain('x-forwarded-host: example.com');
+    expect(res.body).not.toContain('x-forwarded-proto: https');
+    expect(res.body).not.toContain('x-forwarded-for: 192.0.2.1');
+    expect(res.body).not.toContain('forwarded: host=example.com;proto=https');
     server.reset();
   });
 
