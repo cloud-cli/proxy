@@ -42,8 +42,12 @@ const PROXY_ROUTING_HEADERS = [
 
 function envPort(name: string, fallback: number): number | false {
   const value = process.env[name];
-  if (value === undefined) return fallback;
-  if (value.toLowerCase() === 'false') return false;
+  if (value === undefined) {
+    return fallback;
+  }
+  if (value.toLowerCase() === 'false') {
+    return false;
+  }
   return Number(value);
 }
 
@@ -116,7 +120,9 @@ export class ProxyServer extends EventEmitter {
     const httpIndex = httpPort === false ? -1 : 0;
     const httpsIndex = httpsPort === false ? -1 : httpIndex + 1;
     const getPort = (configured: number | false, index: number) => {
-      if (configured === false) return false;
+      if (configured === false) {
+        return false;
+      }
       const address = this.servers[index]?.address();
       return address && typeof address !== 'string' ? address.port : configured;
     };
@@ -125,15 +131,22 @@ export class ProxyServer extends EventEmitter {
   }
 
   async createServers() {
-    if (this.servers.length) return this;
+    if (this.servers.length) {
+      return this;
+    }
 
     const { httpPort, httpsPort } = this.settings;
     const ssl = this.getSslOptions();
     const servers: Array<ReturnType<typeof createHttpServer>> = [];
 
     try {
-      for (const [port, isSsl] of [[httpPort, false], [httpsPort, true]] as const) {
-        if (port === false) continue;
+      for (const [port, isSsl] of [
+        [httpPort, false],
+        [httpsPort, true],
+      ] as const) {
+        if (port === false) {
+          continue;
+        }
 
         const server = this.setupServer(isSsl ? createHttpsServer(ssl) : createHttpServer(), isSsl);
         await new Promise<void>((resolve, reject) => {
@@ -156,7 +169,9 @@ export class ProxyServer extends EventEmitter {
   }
 
   async start() {
-    if (this.started) return this;
+    if (this.started) {
+      return this;
+    }
 
     await this.closePromise;
     this.closePromise = null;
@@ -164,7 +179,9 @@ export class ProxyServer extends EventEmitter {
     await this.reload();
 
     if (this.settings.proxies) {
-      for (const p of this.settings.proxies) this.add(p);
+      for (const p of this.settings.proxies) {
+        this.add(p);
+      }
     }
 
     await this.createServers();
@@ -192,7 +209,9 @@ export class ProxyServer extends EventEmitter {
   }
 
   async reload() {
-    if (this.reloadPromise) return this.reloadPromise;
+    if (this.reloadPromise) {
+      return this.reloadPromise;
+    }
 
     this.reloadPromise = this.loadCertificates()
       .then(() => this)
@@ -217,9 +236,13 @@ export class ProxyServer extends EventEmitter {
       const req = this.matchProxy(_req);
       const proxyRequest = this.createRequest(req, res, isSsl);
 
-      if (!proxyRequest) return;
+      if (!proxyRequest) {
+        return;
+      }
       const { proxyEntry } = req;
-      if (!proxyEntry) return;
+      if (!proxyEntry) {
+        return;
+      }
 
       req.on('error', (error) => proxyRequest.destroy(error));
       req.on('aborted', () => proxyRequest.destroy());
@@ -303,7 +326,9 @@ export class ProxyServer extends EventEmitter {
       socket.setNoDelay(true);
       socket.setKeepAlive(true, 0);
 
-      if (head && head.length) socket.unshift(head);
+      if (head && head.length) {
+        socket.unshift(head);
+      }
 
       proxyReq.on('error', (error) => this.emit('proxyerror', error));
       proxyReq.on('response', (proxyRes) => {
@@ -315,7 +340,9 @@ export class ProxyServer extends EventEmitter {
         proxySocket.on('error', (error) => this.emit('proxyerror', error));
         socket.on('error', () => proxySocket.end());
 
-        if (proxyHead && proxyHead.length) proxySocket.unshift(proxyHead);
+        if (proxyHead && proxyHead.length) {
+          proxySocket.unshift(proxyHead);
+        }
         socket.write(this.createWebSocketResponseHeaders(proxyRes.headers));
         proxySocket.pipe(socket).pipe(proxySocket);
       });
@@ -357,7 +384,9 @@ export class ProxyServer extends EventEmitter {
     for (const candidate of candidates) {
       try {
         const url = new URL(req.url || '/', 'http://' + candidate);
-        if (!this.isManagedDomain(url.hostname)) continue;
+        if (!this.isManagedDomain(url.hostname)) {
+          continue;
+        }
 
         const proxyEntry = this.findProxyEntry(url);
         Object.assign(req, { originHost: candidate, originlUrl: url, proxyEntry });
@@ -377,7 +406,9 @@ export class ProxyServer extends EventEmitter {
       for (const item of values) {
         for (const candidate of item.split(',')) {
           const host = candidate.trim().replace(/^"|"$/g, '');
-          if (host) candidates.push(host);
+          if (host) {
+            candidates.push(host);
+          }
         }
       }
     };
@@ -390,7 +421,9 @@ export class ProxyServer extends EventEmitter {
     for (const value of forwardedValues) {
       for (const parameter of value.split(',')) {
         const match = parameter.match(/(?:^|;)\s*host=([^;]+)/i);
-        if (match) add(match[1]);
+        if (match) {
+          add(match[1]);
+        }
       }
     }
 
@@ -438,7 +471,9 @@ export class ProxyServer extends EventEmitter {
     const signatureHeader = Array.isArray(rawSignature) ? rawSignature[0] : rawSignature;
     let hops = 0;
     if (signatureHeader) {
-      const expected = createHmac('sha256', this.loopSecret).update(hopHeader || '').digest('hex');
+      const expected = createHmac('sha256', this.loopSecret)
+        .update(hopHeader || '')
+        .digest('hex');
       if (signatureHeader !== expected) {
         res.writeHead(508, 'Loop Detected');
         res.end();
@@ -520,7 +555,9 @@ export class ProxyServer extends EventEmitter {
       this.setExtraHeaders(proxyRequest, proxyEntry.headers);
     }
 
-    for (const header of PROXY_ROUTING_HEADERS) proxyRequest.removeHeader(header);
+    for (const header of PROXY_ROUTING_HEADERS) {
+      proxyRequest.removeHeader(header);
+    }
 
     if (proxyEntry.preserveHost) {
       const hostHeader = originHost;
@@ -670,9 +707,7 @@ export class ProxyServer extends EventEmitter {
     const byDomain = this.proxies.filter(
       (p) =>
         p.domain === hostname ||
-        (p.domain.startsWith('*.') &&
-          p.domain.slice(2) === requestParentDomain &&
-          p.domain.slice(2) !== hostname),
+        (p.domain.startsWith('*.') && p.domain.slice(2) === requestParentDomain && p.domain.slice(2) !== hostname),
     );
 
     if (byDomain.length === 1) {
@@ -736,7 +771,9 @@ export class ProxyServer extends EventEmitter {
 
     for (const header of headers) {
       const name = header[0].toLowerCase();
-      if (HOP_BY_HOP_HEADERS.has(name) || connectionHeaders.has(name)) continue;
+      if (HOP_BY_HOP_HEADERS.has(name) || connectionHeaders.has(name)) {
+        continue;
+      }
       to.setHeader(header[0], header[1]);
     }
   }
@@ -744,13 +781,17 @@ export class ProxyServer extends EventEmitter {
   protected setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
     const headers = req.headers;
     const origin = req.headers.origin;
-    if (!origin) return false;
+    if (!origin) {
+      return false;
+    }
 
     let corsOrigin: string;
     let hostname: string;
     try {
       const url = new URL(origin);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+        return false;
+      }
       corsOrigin = url.origin;
       hostname = url.hostname;
     } catch {
@@ -758,10 +799,10 @@ export class ProxyServer extends EventEmitter {
     }
 
     const managedDomains = this.proxies.map((proxy) => proxy.domain.replace(/^\*\./, '').toLowerCase());
-    const allowed = managedDomains.some(
-      (domain) => hostname === domain || hostname.endsWith(`.${domain}`),
-    );
-    if (!allowed) return false;
+    const allowed = managedDomains.some((domain) => hostname === domain || hostname.endsWith(`.${domain}`));
+    if (!allowed) {
+      return false;
+    }
 
     const allowedMethod = headers['access-control-request-method'] || 'GET,HEAD,PUT,PATCH,POST,DELETE';
     const allowedHeaders = headers['access-control-request-headers'] || '*';
@@ -781,10 +822,14 @@ export class ProxyServer extends EventEmitter {
 
     this.emit('proxyerror', error);
 
-    if (res.writableEnded || res.destroyed) return;
+    if (res.writableEnded || res.destroyed) {
+      return;
+    }
 
     if (res.headersSent) {
-      if (res.writable) res.end();
+      if (res.writable) {
+        res.end();
+      }
       return;
     }
 
@@ -807,7 +852,9 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected handleServerError(error: unknown) {
-    if (this.settings.enableDebug) console.error(error);
+    if (this.settings.enableDebug) {
+      console.error(error);
+    }
     this.emit('proxyerror', error);
   }
 

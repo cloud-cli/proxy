@@ -16,7 +16,9 @@ beforeAll(() => {
     res.end('\n\n' + req.method + ' ' + req.url);
   }).listen(port);
 
-  if (process.env.DEBUG) console.log('Target server listening on ' + serverTarget);
+  if (process.env.DEBUG) {
+    console.log('Target server listening on ' + serverTarget);
+  }
 });
 
 afterAll(() => {
@@ -36,9 +38,7 @@ describe('ProxySettings', () => {
   });
 
   it('uses false to disable a listener and zero for an ephemeral port', async () => {
-    const server = new ProxyServer(
-      new ProxySettings({ httpPort: 0, httpsPort: false, autoReload: 0 }),
-    );
+    const server = new ProxyServer(new ProxySettings({ httpPort: 0, httpsPort: false, autoReload: 0 }));
 
     await server.start();
 

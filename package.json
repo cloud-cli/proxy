@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "tsc",
-    "test": "vitest"
+    "test": "vitest",
+    "lint": "eslint ."
   },
   "bin": {
     "http-proxy": "./cli.mjs"
@@ -22,8 +23,12 @@
   "devDependencies": {
     "@cloud-cli/prettier-config": "^1.0.0",
     "@cloud-cli/typescript-config": "^1.0.0",
+    "@eslint/js": "^10.0.1",
     "@types/node": "^20.6.1",
+    "eslint": "^10.12.0",
+    "globals": "^17.13.0",
     "typescript": "^5.4.5",
+    "typescript-eslint": "^8.71.1",
     "vitest": "^1.6.0"
   }
 }
