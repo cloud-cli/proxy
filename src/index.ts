@@ -546,7 +546,6 @@ export class ProxyServer extends EventEmitter {
         : originlUrl.pathname;
     const targetPath = targetPathname + originlUrl.search;
     const targetUrl = new URL(targetPath.slice(1), targetAddress);
-
     const requestOptions = { method: req.method, agent: false };
     const proxyRequest = (targetUrl.protocol === 'https:' ? httpsRequest : httpRequest)(targetUrl, requestOptions);
     this.setHeaders(req, proxyRequest);
@@ -637,9 +636,13 @@ export class ProxyServer extends EventEmitter {
       try {
         target = new URL(proxy.target);
       } catch {}
-      
-      if (!target || ['http:', 'https:'].includes(target.protocol) === false) {
-        throw new Error(`Unsupported proxy target protocol: ${target.protocol}`);
+
+      if (!target) {
+        throw new Error(`Invalid target: ${proxy.target}`);
+      }
+
+      if (!this.validateUrlProtocol(target) {
+        throw new Error(`Unsupported proxy target protocol: ${target?.protocol}`);
       }
     }
 
@@ -783,6 +786,10 @@ export class ProxyServer extends EventEmitter {
     }
   }
 
+  protected validateUrlProtocol(url: URL) {
+    return url && (url.protocol === 'http:' || url.protocol === 'https:');
+  }
+
   protected setCorsHeaders(req: IncomingMessage, res: ServerResponse) {
     const headers = req.headers;
     const origin = req.headers.origin;
@@ -794,7 +801,7 @@ export class ProxyServer extends EventEmitter {
     let hostname: string;
     try {
       const url = new URL(origin);
-      if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      if (!this.validateUrlProtocol(url)) {
         return false;
       }
       corsOrigin = url.origin;
