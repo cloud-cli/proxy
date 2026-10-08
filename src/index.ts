@@ -641,7 +641,7 @@ export class ProxyServer extends EventEmitter {
         throw new Error(`Invalid target: ${proxy.target}`);
       }
 
-      if (!this.validateUrlProtocol(target) {
+      if (!this.validateUrlProtocol(target)) {
         throw new Error(`Unsupported proxy target protocol: ${target?.protocol}`);
       }
     }
