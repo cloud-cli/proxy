@@ -626,11 +626,11 @@ export class ProxyServer extends EventEmitter {
       throw new Error('Proxy domain is required');
     }
 
-    if (proxy.target === undefined && !proxy.redirectToDomain && !proxy.redirectToUrl) {
+    if (!proxy.target && !proxy.redirectToDomain && !proxy.redirectToUrl) {
       throw new Error('Proxy target or redirect is required');
     }
 
-    if (proxy.target !== undefined) {
+    if (proxy.target) {
       let target;
       
       try {
