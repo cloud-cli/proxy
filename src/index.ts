@@ -632,18 +632,23 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (proxy.target !== undefined) {
-      const target = new URL(proxy.target);
-      if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+      let target;
+      
+      try {
+        target = new URL(proxy.target);
+      } catch {}
+      
+      if (!target || ['http:', 'https:'].includes(target.protocol) === false) {
         throw new Error(`Unsupported proxy target protocol: ${target.protocol}`);
       }
     }
 
     if (proxy.path && !proxy.path.startsWith('/')) {
-      throw new Error('Proxy path must start with /');
+      throw new Error('Proxy path must start with / to avoid ambiguous resolution');
     }
 
     if (proxy.headers) {
-      for (const header of proxy.headers.split('|')) {
+      for (const header of proxy.headers.split('|').filter(Boolean)) {
         const separator = header.indexOf(':');
         if (separator <= 0 || !header.slice(separator + 1).trim()) {
           throw new Error(`Invalid proxy header: "${header}"`);
@@ -693,8 +698,8 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected setExtraHeaders(req: ClientRequest, headersString: string) {
-    headersString.split('|').forEach((header) => {
-      const [key, value] = header.split(':', 2);
+    headersString.split('|').filter(Boolean).forEach((header) => {
+      const [key, value = ''] = header.split(':', 2);
       req.setHeader(key.trim(), value.trim());
     });
   }
