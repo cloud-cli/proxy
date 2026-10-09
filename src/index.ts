@@ -20,6 +20,8 @@ import { existsSync } from 'node:fs';
 import { Socket } from 'node:net';
 import { createHmac, randomBytes } from 'node:crypto';
 
+type HttpServer = ReturnType<typeof createHttpServer>;
+
 const HOP_BY_HOP_HEADERS = new Set([
   'connection',
   'keep-alive',
@@ -100,7 +102,7 @@ export type ProxyIncomingMessage = IncomingMessage & {
 export class ProxyServer extends EventEmitter {
   protected certs: Record<string, SecureContext> = {};
   protected proxies: Array<MinimalProxyEntry> = [];
-  protected servers: Array<ReturnType<typeof createHttpServer>> = [];
+  protected servers: Array<HttpServer> = [];
   protected settings: ProxySettings;
   protected autoReload: any;
   protected started = false;
@@ -136,8 +138,7 @@ export class ProxyServer extends EventEmitter {
     }
 
     const { httpPort, httpsPort } = this.settings;
-    const ssl = this.getSslOptions();
-    const servers: Array<ReturnType<typeof createHttpServer>> = [];
+    const servers: Array<HttpServer> = [];
 
     try {
       for (const [port, isSsl] of [
@@ -148,7 +149,7 @@ export class ProxyServer extends EventEmitter {
           continue;
         }
 
-        const server = this.setupServer(isSsl ? createHttpsServer(ssl) : createHttpServer(), isSsl);
+        const server = this.setupServer(isSsl ? createHttpsServer(this.getSslOptions()) : createHttpServer(), isSsl);
         await new Promise<void>((resolve, reject) => {
           const onError = (error: Error) => reject(error);
           server.once('error', onError);
@@ -157,10 +158,15 @@ export class ProxyServer extends EventEmitter {
             resolve();
           });
         });
+
         servers.push(server);
       }
     } catch (error) {
-      await Promise.all(servers.map((server) => this.closeServer(server)));
+      if (this.settings.enableDebug) {
+        console.error('Failed to start', error);
+      }
+
+      await this.stop();
       throw error;
     }
 
@@ -174,7 +180,6 @@ export class ProxyServer extends EventEmitter {
     }
 
     await this.closePromise;
-    this.closePromise = null;
     this.validateSettings();
     await this.reload();
 
@@ -189,23 +194,37 @@ export class ProxyServer extends EventEmitter {
 
     if (this.settings.autoReload) {
       this.autoReload = setInterval(() => {
-        this.reload().catch((error) => this.handleReloadError(error));
+        this.reload().catch((error) => this.handleServerError(error));
       }, this.settings.autoReload);
     }
 
     return this;
   }
 
-  reset() {
-    this.closePromise = Promise.all(this.servers.map((server) => this.closeServer(server))).then(() => undefined);
-    this.servers = [];
-    this.proxies = [];
+  async stop() {
+    if (!this.closePromise) {
+      this.closePromise = Promise.all(this.servers.map((server) => this.closeServer(server))).finally(() => {
+        this.servers = [];
+        this.closePromise = null;
+      });
+    }
+
+    return this.closePromise;
+  }
+
+  async reset() {
+    await this.stop();
+    this.resetProxies();
     this.certs = {};
     this.started = false;
     clearInterval(this.autoReload);
     this.autoReload = undefined;
 
     return this;
+  }
+
+  resetProxies() {
+    this.proxies = [];
   }
 
   async reload() {
@@ -596,7 +615,7 @@ export class ProxyServer extends EventEmitter {
     return server;
   }
 
-  protected closeServer(server: ReturnType<typeof createHttpServer>) {
+  protected closeServer(server: HttpServer) {
     return new Promise<void>((resolve) => {
       if (!server.listening) {
         resolve();
@@ -632,7 +651,7 @@ export class ProxyServer extends EventEmitter {
 
     if (proxy.target) {
       let target;
-      
+
       try {
         target = new URL(proxy.target);
       } catch {}
@@ -701,10 +720,13 @@ export class ProxyServer extends EventEmitter {
   }
 
   protected setExtraHeaders(req: ClientRequest, headersString: string) {
-    headersString.split('|').filter(Boolean).forEach((header) => {
-      const [key, value = ''] = header.split(':', 2);
-      req.setHeader(key.trim(), value.trim());
-    });
+    headersString
+      .split('|')
+      .filter(Boolean)
+      .forEach((header) => {
+        const [key, value = ''] = header.split(':', 2);
+        req.setHeader(key.trim(), value.trim());
+      });
   }
 
   protected findProxyEntry(url: URL) {
@@ -752,7 +774,7 @@ export class ProxyServer extends EventEmitter {
     };
   }
 
-  protected findRootDomain(domain: string) {
+  protected findRootDomain(domain: string): string | null {
     const parts = domain.split('/')[0].split('.');
     const certs = this.certs;
 
@@ -829,7 +851,7 @@ export class ProxyServer extends EventEmitter {
 
   protected handleError(error: any, res: ServerResponse) {
     if (this.settings.enableDebug) {
-      console.error(error);
+      console.error('! request error', error);
     }
 
     this.emit('proxyerror', error);
@@ -865,13 +887,10 @@ export class ProxyServer extends EventEmitter {
 
   protected handleServerError(error: unknown) {
     if (this.settings.enableDebug) {
-      console.error(error);
+      console.error('! server error', error);
     }
-    this.emit('proxyerror', error);
-  }
 
-  protected handleReloadError(error: unknown) {
-    this.handleServerError(error);
+    this.emit('proxyerror', error);
   }
 
   protected notFound(res: ServerResponse) {
