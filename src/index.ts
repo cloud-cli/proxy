@@ -85,7 +85,7 @@ export class ProxySettings {
   readonly proxyLoopSecret = '';
   readonly host = '0.0.0.0';
   readonly enableDebug = !!process.env.DEBUG;
-  readonly fallback: (req: IncomingMessage, res: ServerResponse) => void;
+  readonly fallback: null | ((req: IncomingMessage, res: ServerResponse) => void) = null;
   readonly proxies?: ProxyEntry[];
 
   constructor(p: Partial<ProxySettings> = {}) {
@@ -162,9 +162,7 @@ export class ProxyServer extends EventEmitter {
         servers.push(server);
       }
     } catch (error) {
-      if (this.settings.enableDebug) {
-        console.error('Failed to start', error);
-      }
+      this.debug('Failed to start', error);
 
       await this.stop();
       throw error;
@@ -250,7 +248,7 @@ export class ProxyServer extends EventEmitter {
   }
 
   onRequest(_req: IncomingMessage, res: ServerResponse, isSsl: boolean) {
-    _req.on('error', (error) => this.handleError(error, res));
+    _req.on('error', (error) => this.handleError(error, _req, res));
     res.on('error', (error) => this.handleServerError(error));
 
     try {
@@ -271,21 +269,21 @@ export class ProxyServer extends EventEmitter {
         try {
           proxyRequest.write(chunk);
         } catch (error) {
-          this.handleError(error, res);
+          this.handleError(error, req, res);
         }
       });
       req.on('end', () => {
         try {
           proxyRequest.end();
         } catch (error) {
-          this.handleError(error, res);
+          this.handleError(error, req, res);
         }
       });
 
-      proxyRequest.on('error', (error) => this.handleError(error, res));
+      proxyRequest.on('error', (error) => this.handleError(error, req, res));
       proxyRequest.on('response', (proxyRes) => {
         try {
-          proxyRes.on('error', (error) => this.handleError(error, res));
+          proxyRes.on('error', (error) => this.handleError(error, req, res));
           this.setHeaders(proxyRes, res);
 
           const isCorsSimple = req.method !== 'OPTIONS' && proxyEntry.cors && req.headers.origin;
@@ -301,22 +299,22 @@ export class ProxyServer extends EventEmitter {
             try {
               res.write(chunk);
             } catch (error) {
-              this.handleError(error, res);
+              this.handleError(error, req, res);
             }
           });
           proxyRes.on('end', () => {
             try {
               res.end();
             } catch (error) {
-              this.handleError(error, res);
+              this.handleError(error, req, res);
             }
           });
         } catch (error) {
-          this.handleError(error, res);
+          this.handleError(error, req, res);
         }
       });
     } catch (error) {
-      this.handleError(error, res);
+      this.handleError(error, _req, res);
     }
   }
 
@@ -684,9 +682,7 @@ export class ProxyServer extends EventEmitter {
   protected async loadCertificate(folder: string) {
     const { certificatesFolder, certificateFile, keyFile } = this.settings;
 
-    if (this.settings.enableDebug) {
-      console.log(`+ ${folder}`);
-    }
+    this.debug(`+ ${folder}`);
 
     return createSecureContext({
       cert: await readFile(join(certificatesFolder, folder, certificateFile), 'utf8'),
@@ -702,9 +698,7 @@ export class ProxyServer extends EventEmitter {
       return;
     }
 
-    if (this.settings.enableDebug) {
-      console.log(`Loading certificates from ${folder}`);
-    }
+    this.debug(`Loading certificates from ${folder}`);
 
     const localCerts = !existsSync(folder)
       ? []
@@ -853,22 +847,26 @@ export class ProxyServer extends EventEmitter {
     return true;
   }
 
-  protected handleError(error: any, res: ServerResponse) {
-    if (this.settings.enableDebug) {
-      console.error('! request error', error);
-    }
-
+  protected handleError(error: any, req: IncomingMessage, res: ServerResponse) {
     this.emit('proxyerror', error);
 
+    const status = `[${res.statusCode}] ${req.method} ${req.url}`;
+
     if (res.writableEnded || res.destroyed) {
+      this.debug(`[!] error after completed ${status}`, String(error?.code || error || 'unknown'));
       return;
     }
 
     if (res.headersSent) {
+      this.debug(`[!] aborted ${status}`, String(error));
       if (res.writable) {
         res.end();
       }
       return;
+    }
+
+    if (error?.code) {
+      this.debug(`[!] error ${status}`, String(error.code));
     }
 
     if (error?.code === 'ETIMEDOUT') {
@@ -884,22 +882,26 @@ export class ProxyServer extends EventEmitter {
     }
 
     if (!res.headersSent) {
+      this.debug(`[!] error ${status}`, String(error));
       res.writeHead(500);
       res.end();
     }
   }
 
   protected handleServerError(error: unknown) {
-    if (this.settings.enableDebug) {
-      console.error('! server error', error);
-    }
-
+    this.debug('! server error', error);
     this.emit('proxyerror', error);
   }
 
   protected notFound(res: ServerResponse) {
     res.writeHead(404, 'Not found');
     res.end();
+  }
+
+  protected debug(...args: any[]) {
+    if (this.settings.enableDebug) {
+      console.error(...args);
+    }
   }
 }
 
