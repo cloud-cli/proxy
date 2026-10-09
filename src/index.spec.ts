@@ -3,6 +3,7 @@ import { ProxyServer, ProxySettings, loadConfig } from '.';
 import { IncomingMessage, ServerResponse, createServer } from 'node:http';
 import { EventEmitter } from 'node:stream';
 import { createHmac } from 'node:crypto';
+import { connect } from 'node:net';
 
 const port = 2000 + ~~(Math.random() * 1000);
 const serverTarget = 'http://localhost:' + port;
@@ -188,6 +189,79 @@ describe('ProxyServer', () => {
     expect(res.end).toHaveBeenCalledWith();
     server.reset();
     hangingTarget.close();
+  });
+
+  it('should not apply the upstream response timeout to an open SSE stream', async () => {
+    const streamingTarget = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/event-stream' });
+      res.write('event: connected\ndata: first\n\n');
+      setTimeout(() => res.end('event: heartbeat\ndata: still-open\n\n'), 50);
+    });
+    await new Promise<void>((resolve, reject) => {
+      streamingTarget.once('error', reject);
+      streamingTarget.listen(0, resolve);
+    });
+
+    const port = (streamingTarget.address() as any).port;
+    const { server, createRequest } = setup({ requestTimeout: 10 });
+    const { req, res, promise } = createRequest('GET', new URL('http://example.com/events'));
+
+    await server.start();
+    server.add({ domain: 'example.com', target: `http://127.0.0.1:${port}` });
+    server.onRequest(req, res, false);
+    req.emit('end');
+    await promise;
+
+    expect(res.writeHead).toHaveBeenCalledWith(200, 'OK');
+    expect(res.body).toContain('event: heartbeat');
+    await server.reset();
+    await new Promise<void>((resolve) => streamingTarget.close(() => resolve()));
+  });
+
+  it('should forward the required headers for a WebSocket upgrade', async () => {
+    const upgradeTarget = createServer();
+    let upstreamHeaders: IncomingMessage['headers'] | undefined;
+    upgradeTarget.on('upgrade', (req, socket) => {
+      upstreamHeaders = req.headers;
+      socket.end(
+        'HTTP/1.1 101 Switching Protocols\r\n' +
+          'Connection: Upgrade\r\n' +
+          'Upgrade: websocket\r\n' +
+          'Sec-WebSocket-Accept: test\r\n\r\n',
+      );
+    });
+    await new Promise<void>((resolve, reject) => {
+      upgradeTarget.once('error', reject);
+      upgradeTarget.listen(0, resolve);
+    });
+
+    const targetPort = (upgradeTarget.address() as any).port;
+    const { server } = setup({ requestTimeout: 1000 });
+    await server.start();
+    server.add({ domain: 'example.com', target: `http://127.0.0.1:${targetPort}` });
+
+    const client = connect(server.ports.httpPort as number, '127.0.0.1');
+    const response = new Promise<string>((resolve, reject) => {
+      client.once('error', reject);
+      client.once('data', (chunk) => resolve(chunk.toString()));
+    });
+    client.write(
+      'GET /socket HTTP/1.1\r\n' +
+        'Host: example.com\r\n' +
+        'Connection: Upgrade\r\n' +
+        'Upgrade: websocket\r\n' +
+        'Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n' +
+        'Sec-WebSocket-Version: 13\r\n\r\n',
+    );
+
+    const handshake = await response;
+    expect(handshake).toContain('101 Switching Protocols');
+    expect(upstreamHeaders?.connection?.toLowerCase()).toContain('upgrade');
+    expect(upstreamHeaders?.upgrade?.toLowerCase()).toBe('websocket');
+
+    client.destroy();
+    await server.reset();
+    await new Promise<void>((resolve) => upgradeTarget.close(() => resolve()));
   });
 
   it('should add extra headers to request', async () => {

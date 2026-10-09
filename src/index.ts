@@ -282,6 +282,9 @@ export class ProxyServer extends EventEmitter {
 
       proxyRequest.on('error', (error) => this.handleError(error, req, res));
       proxyRequest.on('response', (proxyRes) => {
+        // This timeout bounds waiting for upstream response headers. Once headers arrive,
+        // it must not interrupt intentionally idle streaming responses such as SSE.
+        proxyRequest.setTimeout(0);
         try {
           proxyRes.on('error', (error) => this.handleError(error, req, res));
           this.setHeaders(proxyRes, res);
@@ -340,6 +343,11 @@ export class ProxyServer extends EventEmitter {
         return;
       }
 
+      // setHeaders deliberately removes hop-by-hop headers for normal HTTP requests.
+      // A WebSocket handshake needs these two headers on the upstream request.
+      proxyReq.setHeader('connection', 'Upgrade');
+      proxyReq.setHeader('upgrade', 'websocket');
+
       socket.on('error', (error) => this.emit('proxyerror', error));
       socket.setTimeout(0);
       socket.setNoDelay(true);
@@ -349,7 +357,10 @@ export class ProxyServer extends EventEmitter {
         socket.unshift(head);
       }
 
-      proxyReq.on('error', (error) => this.emit('proxyerror', error));
+      proxyReq.on('error', (error) => {
+        socket.destroy();
+        this.handleServerError(error);
+      });
       proxyReq.on('response', (proxyRes) => {
         proxyRes.resume();
         socket.end('HTTP/1.1 502 Bad Gateway\r\nConnection: close\r\n\r\n');
@@ -358,6 +369,8 @@ export class ProxyServer extends EventEmitter {
         proxyReq.setTimeout(0);
         proxySocket.on('error', (error) => this.emit('proxyerror', error));
         socket.on('error', () => proxySocket.end());
+        socket.on('close', () => proxySocket.destroy());
+        proxySocket.on('close', () => socket.destroy());
 
         if (proxyHead && proxyHead.length) {
           proxySocket.unshift(proxyHead);
