@@ -203,10 +203,12 @@ export class ProxyServer extends EventEmitter {
 
   async stop() {
     if (!this.closePromise) {
-      this.closePromise = Promise.all(this.servers.map((server) => this.closeServer(server))).finally(() => {
-        this.servers = [];
-        this.closePromise = null;
-      });
+      this.closePromise = Promise.all(this.servers.map((server) => this.closeServer(server)))
+        .then(() => {})
+        .finally(() => {
+          this.servers = [];
+          this.closePromise = null;
+        });
     }
 
     return this.closePromise;
@@ -710,6 +712,8 @@ export class ProxyServer extends EventEmitter {
           withFileTypes: true,
         });
 
+    // TODO: we are using folder names assuming they are the same as root domain.
+    // We should read all domains from the certificate itself and find the root domain
     const folders = localCerts.filter((entry) => entry.isDirectory()).map((dir) => dir.name);
 
     for (const rootDomain of folders) {
@@ -762,19 +766,19 @@ export class ProxyServer extends EventEmitter {
 
     return {
       SNICallback(domain, cb) {
-        const rootDomain = server.findRootDomain(domain);
+        const certificate = server.findCertificateForDomain(domain);
 
-        if (rootDomain) {
-          server.emit('sni', rootDomain);
-          return cb(null, rootDomain);
+        if (certificate) {
+          server.emit('sni', certificate);
+          return cb(null, certificate);
         }
 
-        cb(new Error('Not found'), null);
+        cb(new Error('Not found'));
       },
     };
   }
 
-  protected findRootDomain(domain: string): string | null {
+  protected findCertificateForDomain(domain: string): SecureContext | null {
     const parts = domain.split('/')[0].split('.');
     const certs = this.certs;
 
